@@ -1,0 +1,35 @@
+fn sha2(string: u256) -> u256 {
+    let hasher: Ctx8 = jet::sha_256_ctx_8_init();
+    let hasher: Ctx8 = jet::sha_256_ctx_8_add_32(hasher, string);
+    jet::sha_256_ctx_8_finalize(hasher)
+}
+
+fn checksig(pk: Pubkey, sig: Signature) {
+    let msg: u256 = jet::sig_all_hash();
+    jet::bip_0340_verify((pk, msg), sig);
+}
+
+fn complete_spend(preimage: u256, recipient_sig: Signature) {
+    let hash: u256 = sha2(preimage);
+    let expected_hash: u256 = 0x{{EXPECTED_HASH}};
+    assert!(jet::eq_256(hash, expected_hash));
+    let recipient_pk: Pubkey = 0x{{RECIPIENT_XONLY}};
+    checksig(recipient_pk, recipient_sig);
+}
+
+fn cancel_spend(sender_sig: Signature) {
+    let timeout: Height = {{TIMEOUT_HEIGHT}};
+    jet::check_lock_height(timeout);
+    let sender_pk: Pubkey = 0x{{SENDER_XONLY}};
+    checksig(sender_pk, sender_sig)
+}
+
+fn main() {
+    match witness::COMPLETE_OR_CANCEL {
+        Left(preimage_sig: (u256, Signature)) => {
+            let (preimage, recipient_sig): (u256, Signature) = preimage_sig;
+            complete_spend(preimage, recipient_sig);
+        },
+        Right(sender_sig: Signature) => cancel_spend(sender_sig),
+    }
+}

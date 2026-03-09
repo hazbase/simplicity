@@ -1,0 +1,45 @@
+{
+  "name": "@hazbase/simplicity",
+  "version": "0.0.1",
+  "description": "An SDK for Simplicity on Liquid",
+  "author": "IndieSquare Inc <info@hazbase.com>",
+  "keywords": [
+    "hazBase",
+    "backend",
+    "simplicity",
+    "liquid",
+    "bitcoin",
+    "sidechain",
+    "smart-contracts",
+    "sdk"
+  ],
+  "homepage": "https://lp.hazbase.com/",
+  "repository": "hazbase/simplicity",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "!dist/test",
+    "README.md"
+  ],
+  "bin": {
+    "simplicity-cli": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/copy-presets.mjs",
+    "start": "node dist/cli.js",
+    "test": "npm run build && node --test dist/test",
+    "e2e:simplicity-relayer": "npm run build && node scripts/e2e-simplicity-relayer.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
