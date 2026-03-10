@@ -7,6 +7,22 @@ This SDK is designed to help Node developers get productive quickly, but it is s
 - This SDK currently optimizes for explicit / unblinded success paths first.
 - Gasless support exists, but it comes in multiple modes with different tradeoffs.
 
+Consumer validation note:
+- The published npm package has been validated from a fresh external Node.js project using `npm install @hazbase/simplicity`.
+- Verified flows include preset-based contract execution, custom `.simf` execution, and relayer-backed gasless execution on `liquidtestnet`.
+
+## Validated Scenarios
+
+The published package has been exercised from a blank external consumer project. For the full reproducible fixture, see [docs/consumer-validation/README.md](./docs/consumer-validation/README.md).
+
+| Scenario | Status | Notes |
+| --- | --- | --- |
+| Fresh install + JS import | Success | `npm install @hazbase/simplicity` and `import { createSimplicityClient } from "@hazbase/simplicity"` both worked |
+| CLI smoke | Success | `npx simplicity-cli presets list` worked from the external project |
+| Preset flow (`p2pkLockHeight`) | Success | compile -> fund -> inspect -> execute(`broadcast=true`) |
+| Custom `.simf` flow | Success | `compileFromFile(...)` -> fund -> inspect -> execute(`broadcast=true`) |
+| Relayer-backed gasless flow | Success | `executeGasless(...)` succeeded from the external project |
+
 ## Who This Is For
 
 This README is for you if:
@@ -44,6 +60,68 @@ With the current SDK you can build and test flows such as:
 - custom `.simf` contract workflows driven from TypeScript or CLI.
 
 You can also design more advanced systems such as ERC20-like token behavior, but the model is different from Ethereum. On Liquid/Simplicity, you usually represent state transitions as UTXO transitions instead of account storage updates. So the SDK can support that kind of application, but it does not mean you port Solidity account logic 1:1.
+
+## Trusted Definition JSON
+
+When your contract depends on off-chain business metadata such as a bond definition, coupon schedule, note terms, or asset terms, you usually do not want to trust a plain JSON file by itself. This SDK now supports a **hash-anchor** model for definition JSON.
+
+What that means:
+- the SDK canonicalizes the JSON using stable key ordering,
+- computes `sha256(canonicalJson)`,
+- stores that hash in the artifact as a definition anchor,
+- injects `DEFINITION_HASH` and `DEFINITION_ID` into compile-time template vars when a definition is provided,
+- lets you verify later that the JSON you are reading still matches the contract/artifact it was compiled against.
+
+Minimal TypeScript flow:
+
+```ts
+const definition = await sdk.loadDefinition({
+  type: "bond",
+  id: "BOND-2026-001",
+  jsonPath: "./docs/definitions/bond-definition.json",
+});
+
+const compiled = await sdk.compileFromFile({
+  simfPath: "./docs/definitions/bond-anchor.simf",
+  templateVars: {
+    MIN_HEIGHT: 2344430,
+    SIGNER_XONLY: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  },
+  definition: {
+    type: definition.definitionType,
+    id: definition.definitionId,
+    schemaVersion: definition.schemaVersion,
+    jsonPath: definition.sourcePath,
+  },
+  artifactPath: "./bond.artifact.json",
+});
+
+const verification = await sdk.verifyDefinitionAgainstArtifact({
+  artifactPath: "./bond.artifact.json",
+  jsonPath: "./docs/definitions/bond-definition.json",
+  type: "bond",
+  id: "BOND-2026-001",
+});
+
+console.log(verification.ok);
+```
+
+CLI equivalents:
+
+```bash
+simplicity-cli definition show \
+  --type bond \
+  --id BOND-2026-001 \
+  --json-path ./docs/definitions/bond-definition.json
+
+simplicity-cli definition verify \
+  --artifact ./bond.artifact.json \
+  --type bond \
+  --id BOND-2026-001 \
+  --json-path ./docs/definitions/bond-definition.json
+```
+
+For a bond-oriented walkthrough, see [docs/definitions/README.md](./docs/definitions/README.md).
 
 ## Install
 
@@ -467,6 +545,12 @@ Use custom `.simf` when:
 - you need your own parameterization,
 - you want to build app-specific wrappers on top of the generic SDK.
 
+A real external-consumer validation of this path has been completed with:
+- a fresh project created outside this repo,
+- a local `contract.simf` file owned by that project,
+- `compileFromFile(...)`,
+- funding + inspect + `broadcast: true` execution.
+
 Recommended path:
 - learn the lifecycle with a preset first,
 - then move to `compileFromFile(...)` once the model is clear.
@@ -714,6 +798,15 @@ These examples are included to help you jump to the right workflow quickly.
 - [execute-htlc.ts](./examples/execute-htlc.ts): HTLC preset with custom witness values.
 - [execute-transfer-with-timeout-cooperative.ts](./examples/execute-transfer-with-timeout-cooperative.ts): cooperative multi-witness timeout flow.
 - [gasless-transfer.ts](./examples/gasless-transfer.ts): standard relayer-backed gasless L-BTC transfer.
+- [define-bond.ts](./examples/define-bond.ts): compile a bond example with a trusted definition hash anchor.
+- [show-bond-definition.ts](./examples/show-bond-definition.ts): verify and retrieve a trusted bond definition from JSON + artifact.
+
+In addition to the in-repo examples, the package has also been validated from a blank external consumer project with:
+- `npm install @hazbase/simplicity`
+- JS/TS import of `createSimplicityClient`
+- preset compile -> fund -> inspect -> execute
+- custom `.simf` compile -> fund -> inspect -> execute
+- relayer-backed gasless execution
 
 ## FAQ / Practical Notes
 
@@ -728,6 +821,15 @@ It means: compile the contract, derive its address, then fund that address with 
 ### What is an artifact?
 
 An artifact is the contract's compile output plus the metadata needed to reload, inspect, and execute it later. Think of it as the bridge between compilation time and on-chain execution time.
+
+When you compile with `definition: { ... }`, the artifact also carries:
+- `definitionType`
+- `definitionId`
+- `schemaVersion`
+- `hash`
+- `trustMode`
+
+That is what allows the SDK and CLI to verify that an off-chain JSON definition still matches the contract you compiled.
 
 ### When should I use a preset instead of a custom `.simf` file?
 

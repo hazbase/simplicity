@@ -1,5 +1,6 @@
 export type NetworkName = "liquidtestnet" | "liquidv1" | "regtest";
 export type UtxoPolicy = "smallest_over" | "largest" | "newest";
+export type DefinitionTrustMode = "hash-anchor";
 
 export interface RpcConfig {
   url: string;
@@ -73,6 +74,7 @@ export interface SimplicityArtifact {
     sdkVersion: string;
     notes: string | null;
   };
+  definition?: ArtifactDefinitionMetadata;
   legacy?: {
     simfTemplatePath?: string;
     params?: {
@@ -88,12 +90,39 @@ export interface CompileFromFileInput {
   simfPath: string;
   templateVars?: Record<string, string | number>;
   artifactPath?: string;
+  definition?: DefinitionInput;
 }
 
 export interface CompileFromPresetInput {
   preset: string;
   params: Record<string, string | number>;
   artifactPath?: string;
+  definition?: DefinitionInput;
+}
+
+export interface DefinitionInput {
+  type: string;
+  id: string;
+  schemaVersion?: string;
+  jsonPath?: string;
+  value?: unknown;
+}
+
+export interface DefinitionDescriptor {
+  definitionType: string;
+  definitionId: string;
+  schemaVersion: string;
+  canonicalJson: string;
+  hash: string;
+  sourcePath?: string;
+}
+
+export interface ArtifactDefinitionMetadata {
+  definitionType: string;
+  definitionId: string;
+  schemaVersion: string;
+  hash: string;
+  trustMode: DefinitionTrustMode;
 }
 
 export interface DeploymentInfo {
@@ -169,6 +198,12 @@ export interface PsetSummary {
   purpose?: string;
   bondDefinitionId?: string | null;
   periodId?: string | null;
+  definition?: {
+    type: string | null;
+    id: string | null;
+    hash: string | null;
+    trustMode: DefinitionTrustMode | null;
+  };
   contract: {
     address: string;
     cmr: string;
@@ -239,6 +274,13 @@ export interface GaslessExecuteResult {
     vout: number;
     amountSat: number;
   };
+}
+
+export interface DefinitionVerificationResult {
+  ok: boolean;
+  reason?: string;
+  definition: DefinitionDescriptor;
+  artifactDefinition?: ArtifactDefinitionMetadata;
 }
 
 export interface WaitForFundingInput {

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { normalizeArtifact, saveArtifact, SDK_PACKAGE_VERSION } from "./artifact";
+import { buildArtifactDefinitionMetadata, loadDefinitionInput } from "./definition";
 import { CompilerError } from "./errors";
 import { getPresetOrThrow, validatePresetParams } from "./presets";
 import { renderTemplate } from "./templating";
@@ -33,6 +34,14 @@ async function buildArtifact(input: {
   sourceSimfPath?: string;
   preset?: string;
   templateVars?: Record<string, string | number>;
+  definition?: {
+    definitionType: string;
+    definitionId: string;
+    schemaVersion: string;
+    canonicalJson: string;
+    hash: string;
+    sourcePath?: string;
+  };
 }): Promise<SimplicityArtifact> {
   const compileOutput = await runSimcCompile(input.config.toolchain.simcPath, input.renderedSimfPath);
   const program = parseSimcProgram(compileOutput);
@@ -77,6 +86,7 @@ async function buildArtifact(input: {
         sdkVersion: SDK_PACKAGE_VERSION,
         notes: null,
       },
+      definition: input.definition ? buildArtifactDefinitionMetadata(input.definition) : undefined,
       legacy: {
         simfTemplatePath: input.sourceSimfPath,
         params: {
@@ -93,8 +103,14 @@ export async function compileFromFile(
   config: SimplicityClientConfig,
   input: CompileFromFileInput
 ): Promise<SimplicityArtifact> {
+  const definition = input.definition ? await loadDefinitionInput(input.definition) : undefined;
   const rawSource = await readFile(input.simfPath, "utf8");
-  const rendered = renderTemplate(rawSource, input.templateVars ?? {});
+  const templateVars = {
+    ...(input.templateVars ?? {}),
+    ...(definition && input.templateVars?.DEFINITION_HASH === undefined ? { DEFINITION_HASH: definition.hash } : {}),
+    ...(definition && input.templateVars?.DEFINITION_ID === undefined ? { DEFINITION_ID: definition.definitionId } : {}),
+  };
+  const rendered = renderTemplate(rawSource, templateVars);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-compile-"));
   const renderedPath = path.join(workDir, path.basename(input.simfPath));
   await writeFile(renderedPath, rendered, "utf8");
@@ -103,7 +119,8 @@ export async function compileFromFile(
     renderedSimfPath: renderedPath,
     sourceMode: "file",
     sourceSimfPath: input.simfPath,
-    templateVars: input.templateVars,
+    templateVars,
+    definition,
   });
   if (input.artifactPath) {
     await saveArtifact(input.artifactPath, artifact);
@@ -116,7 +133,12 @@ export async function compileFromPreset(
   input: CompileFromPresetInput
 ): Promise<SimplicityArtifact> {
   const preset = getPresetOrThrow(input.preset);
-  const params = validatePresetParams(preset, input.params);
+  const definition = input.definition ? await loadDefinitionInput(input.definition) : undefined;
+  const params = {
+    ...validatePresetParams(preset, input.params),
+    ...(definition && input.params.DEFINITION_HASH === undefined ? { DEFINITION_HASH: definition.hash } : {}),
+    ...(definition && input.params.DEFINITION_ID === undefined ? { DEFINITION_ID: definition.definitionId } : {}),
+  };
   const rawSource = await readFile(preset.simfTemplatePath, "utf8");
   const rendered = renderTemplate(rawSource, params);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-preset-"));
@@ -129,6 +151,7 @@ export async function compileFromPreset(
     sourceSimfPath: preset.simfTemplatePath,
     preset: preset.id,
     templateVars: params,
+    definition,
   });
   if (input.artifactPath) {
     await saveArtifact(input.artifactPath, artifact);

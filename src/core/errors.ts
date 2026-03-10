@@ -62,3 +62,15 @@ export class PresetExecutionError extends SimplicitySdkError {
     super("PRESET_EXECUTION_UNSUPPORTED", message, details);
   }
 }
+
+export class DefinitionError extends SimplicitySdkError {
+  constructor(message: string, details?: unknown) {
+    super("DEFINITION_ERROR", message, details);
+  }
+}
+
+export class DefinitionVerificationError extends SimplicitySdkError {
+  constructor(message: string, details?: unknown) {
+    super("DEFINITION_VERIFICATION_ERROR", message, details);
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "bondId": "BOND-2026-001",
+  "issuer": "Hazbase Treasury",
+  "faceValue": 1000000,
+  "couponBps": 500,
+  "issueDate": "2026-03-10",
+  "maturityDate": 2344430,
+  "currencyAssetId": "bitcoin",
+  "controllerXonly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+}

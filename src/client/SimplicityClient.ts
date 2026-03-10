@@ -1,9 +1,14 @@
 import { loadArtifact } from "../core/artifact";
 import { compileFromFile, compileFromPreset } from "../core/compiler";
+import { loadDefinitionInput, verifyDefinitionAgainstArtifact } from "../core/definition";
+import { ValidationError } from "../core/errors";
 import { ElementsRpcClient } from "../core/rpc";
 import {
+  DefinitionInput,
+  DefinitionVerificationResult,
   CompileFromFileInput,
   CompileFromPresetInput,
+  DefinitionDescriptor,
   SimplicityArtifact,
   SimplicityClientConfig,
 } from "../core/types";
@@ -38,6 +43,44 @@ export class SimplicityClient {
   async loadArtifact(path: string): Promise<CompiledContract> {
     const artifact = await loadArtifact(path, this.config.network);
     return new CompiledContract(this.config, artifact);
+  }
+
+  async define(input: DefinitionInput): Promise<DefinitionDescriptor> {
+    return loadDefinitionInput(input);
+  }
+
+  async loadDefinition(input: DefinitionInput): Promise<DefinitionDescriptor> {
+    return loadDefinitionInput(input);
+  }
+
+  async verifyDefinitionAgainstArtifact(input: {
+    artifactPath?: string;
+    artifact?: SimplicityArtifact;
+    jsonPath?: string;
+    value?: unknown;
+    expectedType?: string;
+    expectedId?: string;
+    type?: string;
+    id?: string;
+    schemaVersion?: string;
+  }): Promise<DefinitionVerificationResult> {
+    const artifact =
+      input.artifact ?? (input.artifactPath ? await loadArtifact(input.artifactPath, this.config.network) : undefined);
+    if (!artifact) {
+      throw new ValidationError("artifactPath or artifact is required");
+    }
+    return verifyDefinitionAgainstArtifact({
+      artifact,
+      definition: {
+        type: input.type ?? input.expectedType ?? artifact.definition?.definitionType ?? "",
+        id: input.id ?? input.expectedId ?? artifact.definition?.definitionId ?? "",
+        schemaVersion: input.schemaVersion,
+        jsonPath: input.jsonPath,
+        value: input.value,
+      },
+      expectedType: input.expectedType,
+      expectedId: input.expectedId,
+    });
   }
 
   fromArtifact(artifact: SimplicityArtifact): DeployedContract {

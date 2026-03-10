@@ -284,8 +284,17 @@ function buildPsetSummary(decoded: Record<string, any>, meta: Record<string, any
   return {
     network: meta.network,
     purpose: meta.purpose,
-    bondDefinitionId: meta.bondDefinitionId ?? null,
+    bondDefinitionId:
+      meta.definitionType === "bond"
+        ? (meta.definitionId ?? meta.bondDefinitionId ?? null)
+        : (meta.bondDefinitionId ?? null),
     periodId: meta.periodId ?? null,
+    definition: {
+      type: meta.definitionType ?? null,
+      id: meta.definitionId ?? null,
+      hash: meta.definitionHash ?? null,
+      trustMode: meta.definitionTrustMode ?? null,
+    },
     contract: {
       address: meta.contractAddress,
       cmr: meta.cmr,
@@ -404,6 +413,10 @@ async function buildExecutionState(
     purpose: input.purpose ?? "sdk_execute",
     bondDefinitionId: input.bondDefinitionId,
     periodId: input.periodId,
+    definitionType: artifact.definition?.definitionType,
+    definitionId: artifact.definition?.definitionId,
+    definitionHash: artifact.definition?.hash,
+    definitionTrustMode: artifact.definition?.trustMode,
     expectedLiquidReceiver: input.expectedLiquidReceiver ?? recipientAddress,
     contractAddress: artifact.compiled.contractAddress,
     cmr: artifact.compiled.cmr,
@@ -605,6 +618,11 @@ export async function executeGaslessContractCall(
   const summary = buildPsetSummary(decoded, {
     network: artifact.network,
     purpose: "sdk_gasless_execute",
+    bondDefinitionId: null,
+    definitionType: artifact.definition?.definitionType,
+    definitionId: artifact.definition?.definitionId,
+    definitionHash: artifact.definition?.hash,
+    definitionTrustMode: artifact.definition?.trustMode,
     contractAddress: artifact.compiled.contractAddress,
     cmr: artifact.compiled.cmr,
     internalKey: artifact.compiled.internalKey,
@@ -875,8 +893,14 @@ async function executeRelayedGaslessContractCall(
     summary: {
       network: artifact.network,
       purpose: "sdk_gasless_execute_relayer",
-      bondDefinitionId: null,
+      bondDefinitionId: artifact.definition?.definitionType === "bond" ? artifact.definition.definitionId : null,
       periodId: null,
+      definition: {
+        type: artifact.definition?.definitionType ?? null,
+        id: artifact.definition?.definitionId ?? null,
+        hash: artifact.definition?.hash ?? null,
+        trustMode: artifact.definition?.trustMode ?? null,
+      },
       contract: {
         address: request.detailedSummary.contract.contractAddress,
         cmr: request.detailedSummary.contract.cmr,

@@ -1,5 +1,5 @@
 import { saveArtifact } from "../core/artifact";
-import { DeploymentInfo, SimplicityArtifact, SimplicityClientConfig } from "../core/types";
+import { ArtifactDefinitionMetadata, DeploymentInfo, SimplicityArtifact, SimplicityClientConfig } from "../core/types";
 import { DeployedContract } from "./DeployedContract";
 
 export class CompiledContract {
@@ -18,6 +18,10 @@ export class CompiledContract {
 
   get program(): string {
     return this.artifact.compiled.program;
+  }
+
+  definition(): ArtifactDefinitionMetadata | null {
+    return this.artifact.definition ?? null;
   }
 
   deployment(): DeploymentInfo {

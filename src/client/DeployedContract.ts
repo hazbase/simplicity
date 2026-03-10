@@ -1,6 +1,9 @@
 import { executeContractCall, findContractUtxos, inspectContractCall } from "../core/executor";
+import { verifyDefinitionAgainstArtifact } from "../core/definition";
 import {
+  ArtifactDefinitionMetadata,
   ContractUtxo,
+  DefinitionInput,
   ExecuteCallInput,
   ExecuteResult,
   GaslessExecuteInput,
@@ -52,5 +55,37 @@ export class DeployedContract {
 
   async executeGasless(input: GaslessExecuteInput): Promise<GaslessExecuteResult> {
     return executeGaslessContractCall(this.config, this.artifact, input);
+  }
+
+  async getTrustedDefinition(input: {
+    jsonPath?: string;
+    value?: unknown;
+    type?: string;
+    id?: string;
+    schemaVersion?: string;
+  }): Promise<{
+    verified: boolean;
+    definition: Awaited<ReturnType<typeof verifyDefinitionAgainstArtifact>>["definition"];
+    artifactDefinition: ArtifactDefinitionMetadata | null;
+    reason?: string;
+  }> {
+    const verification = await verifyDefinitionAgainstArtifact({
+      artifact: this.artifact,
+      definition: {
+        type: input.type ?? this.artifact.definition?.definitionType ?? "",
+        id: input.id ?? this.artifact.definition?.definitionId ?? "",
+        schemaVersion: input.schemaVersion,
+        jsonPath: input.jsonPath,
+        value: input.value,
+      } satisfies DefinitionInput,
+      expectedType: this.artifact.definition?.definitionType,
+      expectedId: this.artifact.definition?.definitionId,
+    });
+    return {
+      verified: verification.ok,
+      definition: verification.definition,
+      artifactDefinition: verification.artifactDefinition ?? null,
+      reason: verification.reason,
+    };
   }
 }

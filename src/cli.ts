@@ -2,10 +2,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadArtifact } from "./core/artifact";
+import { loadDefinitionInput } from "./core/definition";
 import { describePreset, getPresetOrThrow, listPresets } from "./core/presets";
 import { SimplicitySdkError } from "./core/errors";
 import { createSimplicityClient } from "./client/SimplicityClient";
-import { ContractUtxo, PresetManifestEntry, SimplicityClientConfig } from "./core/types";
+import { ContractUtxo, DefinitionInput, PresetManifestEntry, SimplicityClientConfig } from "./core/types";
 
 function getArg(name: string, defaultValue?: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -69,6 +70,24 @@ function parseWitnessSigners(values: string[]): Record<string, { type: "schnorrP
       return [name, { type: "schnorrPrivkeyHex", privkeyHex }];
     })
   );
+}
+
+function parseDefinitionInput(): DefinitionInput | undefined {
+  const type = getArg("definition-type");
+  const id = getArg("definition-id");
+  const jsonPath = getArg("definition-json");
+  const valueJson = getArg("definition-value");
+  const schemaVersion = getArg("definition-schema-version");
+  if (!type && !id && !jsonPath && !valueJson && !schemaVersion) {
+    return undefined;
+  }
+  return {
+    type: type ?? "",
+    id: id ?? "",
+    schemaVersion: schemaVersion ?? undefined,
+    jsonPath,
+    value: valueJson ? JSON.parse(valueJson) : undefined,
+  };
 }
 
 function resolveConfig(): SimplicityClientConfig {
@@ -383,6 +402,15 @@ function formatArtifactHelp(
     `  status: ${status}`,
     `  ready: ${ready ? "yes" : "no"}`,
   ].join("\n");
+  const definition = artifact.definition
+    ? [
+        `  type: ${artifact.definition.definitionType}`,
+        `  id: ${artifact.definition.definitionId}`,
+        `  schema version: ${artifact.definition.schemaVersion}`,
+        `  hash: ${artifact.definition.hash}`,
+        `  trust mode: ${artifact.definition.trustMode}`,
+      ].join("\n")
+    : "  (none)";
   const compileSource = artifact.source.simfPath ?? artifact.legacy?.simfTemplatePath ?? "(unknown)";
   const templateVars = artifact.source.templateVars ?? {};
   const inspectCommand = `simplicity-cli contract inspect --artifact ./artifact.json --wallet simplicity-test --privkey <privkey-hex> --to-address tex1...`;
@@ -401,6 +429,9 @@ function formatArtifactHelp(
     "",
     "Template Vars:",
     indent(JSON.stringify(templateVars, null, 2)),
+    "",
+    "Definition Anchor:",
+    definition,
     "",
     "Suggested Commands:",
     `  ${inspectCommand}`,
@@ -447,7 +478,7 @@ async function main(): Promise<void> {
   const sdk = createSimplicityClient(resolveConfig());
 
   if (!command) {
-    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|gasless> ...");
+    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|gasless> ...");
   }
 
   if (command === "compile") {
@@ -455,8 +486,41 @@ async function main(): Promise<void> {
       simfPath: requireArg("simf"),
       templateVars: parseAssignments(getMultiArgs("template-var")),
       artifactPath: getArg("artifact"),
+      definition: parseDefinitionInput(),
     });
     printJson({ artifact: result.artifact, deployment: result.deployment() });
+    return;
+  }
+
+  if (command === "definition" && subcommand === "show") {
+    const definition = await loadDefinitionInput({
+      type: requireArg("type"),
+      id: requireArg("id"),
+      jsonPath: getArg("json-path"),
+      value: getArg("value") ? JSON.parse(getArg("value")!) : undefined,
+      schemaVersion: getArg("schema-version"),
+    });
+    printJson(definition);
+    return;
+  }
+
+  if (command === "definition" && subcommand === "verify") {
+    const verification = await sdk.verifyDefinitionAgainstArtifact({
+      artifactPath: requireArg("artifact"),
+      type: getArg("type"),
+      id: getArg("id"),
+      expectedType: getArg("expected-type"),
+      expectedId: getArg("expected-id"),
+      jsonPath: getArg("json-path"),
+      value: getArg("value") ? JSON.parse(getArg("value")!) : undefined,
+      schemaVersion: getArg("schema-version"),
+    });
+    printJson({
+      verified: verification.ok,
+      reason: verification.reason,
+      definition: verification.definition,
+      artifactDefinition: verification.artifactDefinition ?? null,
+    });
     return;
   }
 
@@ -505,6 +569,7 @@ async function main(): Promise<void> {
       preset: requireArg("preset"),
       params,
       artifactPath: getArg("artifact"),
+      definition: parseDefinitionInput(),
     });
     printJson({ artifact: result.artifact, deployment: result.deployment() });
     return;

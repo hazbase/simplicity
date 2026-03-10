@@ -6,3 +6,9 @@ export * from "./core/types";
 export * from "./core/errors";
 export { listPresets, getPresetOrThrow } from "./core/presets";
 export { loadArtifact, saveArtifact, normalizeArtifact } from "./core/artifact";
+export {
+  loadDefinitionInput,
+  buildArtifactDefinitionMetadata,
+  verifyDefinitionAgainstArtifact,
+  verifyDefinitionDescriptorAgainstArtifact,
+} from "./core/definition";

@@ -55,6 +55,7 @@ export function normalizeArtifact(
       sdkVersion: SDK_PACKAGE_VERSION,
       notes: null,
     },
+    definition: undefined,
     legacy: {
       simfTemplatePath: artifact.simfTemplatePath,
       params: artifact.params,
@@ -93,6 +94,7 @@ export async function loadArtifact(
           simfTemplatePath: legacySimfTemplatePath,
         }
       : undefined,
+    definition: normalized.definition,
   };
 }
 

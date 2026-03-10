@@ -2,3 +2,7 @@ node_modules
 dist
 *.artifact.json
 *.log
+*.tgz
+.env
+.env.*
+!.env.example
