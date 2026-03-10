@@ -1,4 +1,6 @@
 # @hazbase/simplicity
+[![npm version](https://badge.fury.io/js/@hazbase%2Fsimplicity.svg)](https://badge.fury.io/js/@hazbase%2Fsimplicity)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 `@hazbase/simplicity` is a Node.js / TypeScript SDK for working with Simplicity contracts on Liquid with an EVM-like developer workflow. It lets you compile SimplicityHL (`.simf`) contracts, derive the contract address, fund that address, inspect the spend you are about to make, execute the contract, and optionally run fee-sponsored flows through a sponsor wallet or relayer. It also ships with built-in presets so you can start from known-good contract templates before moving to custom `.simf` code.
 
