@@ -14,3 +14,26 @@ test("summarize returns deterministic hash", () => {
   assert.equal(left.canonicalJson, right.canonicalJson);
   assert.equal(left.hash, right.hash);
 });
+
+test("summary includes definition anchorMode deterministically", () => {
+  const left = summarize({
+    definition: {
+      type: "bond",
+      id: "BOND-1",
+      hash: "abc",
+      trustMode: "hash-anchor",
+      anchorMode: "on-chain-constant-committed",
+    },
+  });
+  const right = summarize({
+    definition: {
+      anchorMode: "on-chain-constant-committed",
+      trustMode: "hash-anchor",
+      hash: "abc",
+      id: "BOND-1",
+      type: "bond",
+    },
+  });
+  assert.equal(left.canonicalJson, right.canonicalJson);
+  assert.equal(left.hash, right.hash);
+});

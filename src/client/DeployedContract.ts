@@ -68,6 +68,7 @@ export class DeployedContract {
     definition: Awaited<ReturnType<typeof verifyDefinitionAgainstArtifact>>["definition"];
     artifactDefinition: ArtifactDefinitionMetadata | null;
     reason?: string;
+    trust: Awaited<ReturnType<typeof verifyDefinitionAgainstArtifact>>["trust"];
   }> {
     const verification = await verifyDefinitionAgainstArtifact({
       artifact: this.artifact,
@@ -86,6 +87,7 @@ export class DeployedContract {
       definition: verification.definition,
       artifactDefinition: verification.artifactDefinition ?? null,
       reason: verification.reason,
+      trust: verification.trust,
     };
   }
 }

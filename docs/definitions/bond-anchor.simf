@@ -1,8 +1,18 @@
 /*
- * Bond definition hash anchor: {{DEFINITION_HASH}}
- * Bond definition id: {{DEFINITION_ID}}
+ * Bond definition hash anchor via executed logic.
  */
+fn not(bit: bool) -> bool {
+    <u1>::into(jet::complement_1(<bool>::into(bit)))
+}
+
+fn require_definition_anchor() {
+    let anchored_definition_hash: u256 = 0x{{DEFINITION_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_definition_hash, zero_hash)));
+}
+
 fn main() {
+    require_definition_anchor();
     jet::check_lock_height({{MIN_HEIGHT}});
     let signer: Pubkey = 0x{{SIGNER_XONLY}};
     jet::bip_0340_verify((signer, jet::sig_all_hash()), witness::SIGNER_SIGNATURE)

@@ -78,7 +78,8 @@ function parseDefinitionInput(): DefinitionInput | undefined {
   const jsonPath = getArg("definition-json");
   const valueJson = getArg("definition-value");
   const schemaVersion = getArg("definition-schema-version");
-  if (!type && !id && !jsonPath && !valueJson && !schemaVersion) {
+  const anchorMode = getArg("definition-anchor-mode") as DefinitionInput["anchorMode"] | undefined;
+  if (!type && !id && !jsonPath && !valueJson && !schemaVersion && !anchorMode) {
     return undefined;
   }
   return {
@@ -87,6 +88,7 @@ function parseDefinitionInput(): DefinitionInput | undefined {
     schemaVersion: schemaVersion ?? undefined,
     jsonPath,
     value: valueJson ? JSON.parse(valueJson) : undefined,
+    anchorMode,
   };
 }
 
@@ -409,6 +411,9 @@ function formatArtifactHelp(
         `  schema version: ${artifact.definition.schemaVersion}`,
         `  hash: ${artifact.definition.hash}`,
         `  trust mode: ${artifact.definition.trustMode}`,
+        `  anchor mode: ${artifact.definition.anchorMode}`,
+        `  on-chain helper: ${artifact.definition.onChainAnchor?.helper ?? "(none)"}`,
+        `  source verified: ${artifact.definition.onChainAnchor?.sourceVerified === true ? "yes" : "no"}`,
       ].join("\n")
     : "  (none)";
   const compileSource = artifact.source.simfPath ?? artifact.legacy?.simfTemplatePath ?? "(unknown)";
@@ -500,7 +505,10 @@ async function main(): Promise<void> {
       value: getArg("value") ? JSON.parse(getArg("value")!) : undefined,
       schemaVersion: getArg("schema-version"),
     });
-    printJson(definition);
+    printJson({
+      ...definition,
+      anchorRecommendation: "Use --definition-anchor-mode on-chain-constant-committed with a blessed custom .simf helper for on-chain enforcement",
+    });
     return;
   }
 
@@ -520,6 +528,7 @@ async function main(): Promise<void> {
       reason: verification.reason,
       definition: verification.definition,
       artifactDefinition: verification.artifactDefinition ?? null,
+      trust: verification.trust,
     });
     return;
   }

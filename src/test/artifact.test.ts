@@ -75,4 +75,55 @@ test("saveArtifact/loadArtifact roundtrip preserves definition metadata", async 
   assert.equal(loaded.definition?.definitionType, "bond");
   assert.equal(loaded.definition?.definitionId, "BOND-1");
   assert.equal(loaded.definition?.hash, definition.hash);
+  assert.equal(loaded.definition?.anchorMode, "artifact-hash-anchor");
+});
+
+test("saveArtifact/loadArtifact roundtrip preserves on-chain anchor metadata", async () => {
+  const definition = await loadDefinitionInput({
+    type: "bond",
+    id: "BOND-2",
+    value: { issuer: "Hazbase", couponBps: 500 },
+  });
+  const dir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-artifact-"));
+  const simfPath = path.join(dir, "contract.simf");
+  const artifactPath = path.join(dir, "artifact.json");
+  await writeFile(simfPath, "main := unit", "utf8");
+  await saveArtifact(artifactPath, {
+    version: 6,
+    kind: "simplicity-artifact",
+    createdAt: "2026-03-10T00:00:00.000Z",
+    network: "liquidtestnet",
+    source: {
+      mode: "file",
+      simfPath,
+      templateVars: {},
+    },
+    compiled: {
+      program: "prog",
+      cmr: "cmr",
+      internalKey: "internal",
+      contractAddress: "tex1",
+    },
+    toolchain: {
+      simcPath: "simc",
+      halSimplicity: "hal-simplicity",
+    },
+    metadata: {
+      sdkVersion: "0.0.2",
+      notes: null,
+    },
+    definition: buildArtifactDefinitionMetadata(definition, {
+      anchorMode: "on-chain-constant-committed",
+      onChainAnchor: {
+        helper: "nonzero-eq_256",
+        templateVar: "DEFINITION_HASH",
+        sourceVerified: true,
+      },
+    }),
+  });
+
+  const loaded = await loadArtifact(artifactPath, "liquidtestnet");
+  assert.equal(loaded.definition?.anchorMode, "on-chain-constant-committed");
+  assert.equal(loaded.definition?.onChainAnchor?.helper, "nonzero-eq_256");
+  assert.equal(loaded.definition?.onChainAnchor?.sourceVerified, true);
 });

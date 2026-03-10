@@ -1,6 +1,6 @@
 {
   "name": "@hazbase/simplicity",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "An SDK for Simplicity on Liquid",
   "author": "IndieSquare Inc <info@hazbase.com>",
   "keywords": [
@@ -36,7 +36,8 @@
     "build": "tsc && node scripts/copy-presets.mjs",
     "start": "node dist/cli.js",
     "test": "npm run build && node --test dist/test",
-    "e2e:simplicity-relayer": "npm run build && node scripts/e2e-simplicity-relayer.mjs"
+    "e2e:simplicity-relayer": "npm run build && node scripts/e2e-simplicity-relayer.mjs",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

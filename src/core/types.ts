@@ -1,6 +1,7 @@
 export type NetworkName = "liquidtestnet" | "liquidv1" | "regtest";
 export type UtxoPolicy = "smallest_over" | "largest" | "newest";
 export type DefinitionTrustMode = "hash-anchor";
+export type DefinitionAnchorMode = "artifact-hash-anchor" | "on-chain-constant-committed";
 
 export interface RpcConfig {
   url: string;
@@ -106,6 +107,7 @@ export interface DefinitionInput {
   schemaVersion?: string;
   jsonPath?: string;
   value?: unknown;
+  anchorMode?: DefinitionAnchorMode;
 }
 
 export interface DefinitionDescriptor {
@@ -123,6 +125,12 @@ export interface ArtifactDefinitionMetadata {
   schemaVersion: string;
   hash: string;
   trustMode: DefinitionTrustMode;
+  anchorMode: DefinitionAnchorMode;
+  onChainAnchor?: {
+    helper: "nonzero-eq_256";
+    templateVar: "DEFINITION_HASH";
+    sourceVerified: boolean;
+  };
 }
 
 export interface DeploymentInfo {
@@ -203,6 +211,7 @@ export interface PsetSummary {
     id: string | null;
     hash: string | null;
     trustMode: DefinitionTrustMode | null;
+    anchorMode: DefinitionAnchorMode | null;
   };
   contract: {
     address: string;
@@ -281,6 +290,12 @@ export interface DefinitionVerificationResult {
   reason?: string;
   definition: DefinitionDescriptor;
   artifactDefinition?: ArtifactDefinitionMetadata;
+  trust: {
+    artifactMatch: boolean;
+    onChainAnchorPresent: boolean;
+    onChainAnchorVerified: boolean;
+    effectiveMode: "none" | DefinitionAnchorMode;
+  };
 }
 
 export interface WaitForFundingInput {

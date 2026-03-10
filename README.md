@@ -74,6 +74,13 @@ What that means:
 - injects `DEFINITION_HASH` and `DEFINITION_ID` into compile-time template vars when a definition is provided,
 - lets you verify later that the JSON you are reading still matches the contract/artifact it was compiled against.
 
+There are now two anchor modes:
+- `artifact-hash-anchor`: the JSON hash is anchored in the artifact and verified later against that artifact.
+- `on-chain-constant-committed`: the JSON hash is anchored in the artifact and also committed into executed contract logic, so it materially affects the compiled program, CMR, and contract address.
+
+Today, `on-chain-constant-committed` is guaranteed for custom `.simf` contracts that include the blessed `require_definition_anchor()` helper pattern. Built-in presets still default to artifact-only anchors for now.
+The SDK does **not** trust artifact JSON alone for this verdict. `trust.onChainAnchorVerified` only becomes `true` when the SDK can read the source file again and re-detect the blessed helper pattern. If the source file is unavailable, the claimed mode may still be `on-chain-constant-committed`, but `onChainAnchorVerified` will remain `false`.
+
 Minimal TypeScript flow:
 
 ```ts
@@ -94,6 +101,7 @@ const compiled = await sdk.compileFromFile({
     id: definition.definitionId,
     schemaVersion: definition.schemaVersion,
     jsonPath: definition.sourcePath,
+    anchorMode: "on-chain-constant-committed",
   },
   artifactPath: "./bond.artifact.json",
 });
@@ -106,6 +114,7 @@ const verification = await sdk.verifyDefinitionAgainstArtifact({
 });
 
 console.log(verification.ok);
+console.log(verification.trust.effectiveMode);
 ```
 
 CLI equivalents:
@@ -830,6 +839,7 @@ When you compile with `definition: { ... }`, the artifact also carries:
 - `schemaVersion`
 - `hash`
 - `trustMode`
+- `anchorMode`
 
 That is what allows the SDK and CLI to verify that an off-chain JSON definition still matches the contract you compiled.
 

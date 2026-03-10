@@ -294,6 +294,7 @@ function buildPsetSummary(decoded: Record<string, any>, meta: Record<string, any
       id: meta.definitionId ?? null,
       hash: meta.definitionHash ?? null,
       trustMode: meta.definitionTrustMode ?? null,
+      anchorMode: meta.definitionAnchorMode ?? null,
     },
     contract: {
       address: meta.contractAddress,
@@ -417,6 +418,7 @@ async function buildExecutionState(
     definitionId: artifact.definition?.definitionId,
     definitionHash: artifact.definition?.hash,
     definitionTrustMode: artifact.definition?.trustMode,
+    definitionAnchorMode: artifact.definition?.anchorMode,
     expectedLiquidReceiver: input.expectedLiquidReceiver ?? recipientAddress,
     contractAddress: artifact.compiled.contractAddress,
     cmr: artifact.compiled.cmr,
@@ -623,6 +625,7 @@ export async function executeGaslessContractCall(
     definitionId: artifact.definition?.definitionId,
     definitionHash: artifact.definition?.hash,
     definitionTrustMode: artifact.definition?.trustMode,
+    definitionAnchorMode: artifact.definition?.anchorMode,
     contractAddress: artifact.compiled.contractAddress,
     cmr: artifact.compiled.cmr,
     internalKey: artifact.compiled.internalKey,
@@ -900,6 +903,7 @@ async function executeRelayedGaslessContractCall(
         id: artifact.definition?.definitionId ?? null,
         hash: artifact.definition?.hash ?? null,
         trustMode: artifact.definition?.trustMode ?? null,
+        anchorMode: artifact.definition?.anchorMode ?? null,
       },
       contract: {
         address: request.detailedSummary.contract.contractAddress,

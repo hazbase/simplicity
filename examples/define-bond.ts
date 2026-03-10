@@ -26,6 +26,7 @@ async function main() {
       id: definition.definitionId,
       schemaVersion: definition.schemaVersion,
       jsonPath: definition.sourcePath,
+      anchorMode: "on-chain-constant-committed",
     },
     artifactPath,
   });

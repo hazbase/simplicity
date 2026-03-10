@@ -15,7 +15,16 @@ export function normalizeArtifact(
   networkDefault: SimplicityArtifact["network"] = "liquidtestnet"
 ): SimplicityArtifact {
   if (artifact.version === SDK_ARTIFACT_VERSION) {
-    return artifact as SimplicityArtifact;
+    const current = artifact as SimplicityArtifact;
+    return {
+      ...current,
+      definition: current.definition
+        ? {
+            ...current.definition,
+            anchorMode: current.definition.anchorMode ?? "artifact-hash-anchor",
+          }
+        : undefined,
+    };
   }
   if (!isArtifactV5(artifact)) {
     throw new ArtifactError("Unsupported artifact version", artifact);
