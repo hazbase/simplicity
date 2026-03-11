@@ -1,7 +1,9 @@
 import { executeContractCall, findContractUtxos, inspectContractCall } from "../core/executor";
 import { verifyDefinitionAgainstArtifact } from "../core/definition";
+import { verifyStateAgainstArtifact } from "../core/state";
 import {
   ArtifactDefinitionMetadata,
+  ArtifactStateMetadata,
   ContractUtxo,
   DefinitionInput,
   ExecuteCallInput,
@@ -12,6 +14,7 @@ import {
   InspectResult,
   SimplicityArtifact,
   SimplicityClientConfig,
+  StateDocumentInput,
   WaitForFundingInput,
 } from "../core/types";
 import { executeGaslessContractCall } from "../core/executor";
@@ -86,6 +89,40 @@ export class DeployedContract {
       verified: verification.ok,
       definition: verification.definition,
       artifactDefinition: verification.artifactDefinition ?? null,
+      reason: verification.reason,
+      trust: verification.trust,
+    };
+  }
+
+  async getTrustedState(input: {
+    jsonPath?: string;
+    value?: unknown;
+    type?: string;
+    id?: string;
+    schemaVersion?: string;
+  }): Promise<{
+    verified: boolean;
+    state: Awaited<ReturnType<typeof verifyStateAgainstArtifact>>["state"];
+    artifactState: ArtifactStateMetadata | null;
+    reason?: string;
+    trust: Awaited<ReturnType<typeof verifyStateAgainstArtifact>>["trust"];
+  }> {
+    const verification = await verifyStateAgainstArtifact({
+      artifact: this.artifact,
+      state: {
+        type: input.type ?? this.artifact.state?.stateType ?? "",
+        id: input.id ?? this.artifact.state?.stateId ?? "",
+        schemaVersion: input.schemaVersion,
+        jsonPath: input.jsonPath,
+        value: input.value,
+      } satisfies StateDocumentInput,
+      expectedType: this.artifact.state?.stateType,
+      expectedId: this.artifact.state?.stateId,
+    });
+    return {
+      verified: verification.ok,
+      state: verification.state,
+      artifactState: verification.artifactState ?? null,
       reason: verification.reason,
       trust: verification.trust,
     };

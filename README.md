@@ -134,6 +134,82 @@ simplicity-cli definition verify \
 
 For a bond-oriented walkthrough, see [docs/definitions/README.md](./docs/definitions/README.md).
 
+## Trusted Issuance State JSON
+
+The same hash-anchor model now also applies to issuance state documents such as a bond issuance record.
+
+This is useful when you want to say not only:
+
+- "these are the bond terms,"
+
+but also:
+
+- "this bond was issued in this amount, with this outstanding principal, under this controller."
+
+The SDK now supports:
+
+- loading and hashing a state JSON with `sdk.loadStateDocument(...)`,
+- storing its hash in the artifact,
+- committing `STATE_HASH` into custom `.simf` contract logic,
+- verifying later that the issuance state JSON still matches the compiled contract.
+
+For Bond issuance, the recommended shape is:
+
+```json
+{
+  "issuanceId": "BOND-2026-001-ISSUE-1",
+  "bondId": "BOND-2026-001",
+  "issuerEntityId": "hazbase-treasury",
+  "issuedPrincipal": 1000000,
+  "outstandingPrincipal": 1000000,
+  "redeemedPrincipal": 0,
+  "currencyAssetId": "bitcoin",
+  "controllerXonly": "<xonly>",
+  "issuedAt": "2026-03-10T00:00:00Z",
+  "status": "ISSUED"
+}
+```
+
+Minimal TypeScript flow:
+
+```ts
+const compiled = await sdk.bonds.defineBond({
+  definitionPath: "./docs/definitions/bond-definition.json",
+  issuancePath: "./docs/definitions/bond-issuance-state.json",
+  simfPath: "./docs/definitions/bond-issuance-anchor.simf",
+  artifactPath: "./bond-issuance.artifact.json",
+});
+
+const verification = await sdk.bonds.verifyBond({
+  artifactPath: "./bond-issuance.artifact.json",
+  definitionPath: "./docs/definitions/bond-definition.json",
+  issuancePath: "./docs/definitions/bond-issuance-state.json",
+});
+
+console.log(verification.crossChecks.principalInvariantValid);
+console.log(verification.issuance.trust.effectiveMode);
+```
+
+CLI equivalents:
+
+```bash
+simplicity-cli state show \
+  --type bond-issuance \
+  --id BOND-2026-001-ISSUE-1 \
+  --json-path ./docs/definitions/bond-issuance-state.json
+
+simplicity-cli state verify \
+  --artifact ./bond-issuance.artifact.json \
+  --type bond-issuance \
+  --id BOND-2026-001-ISSUE-1 \
+  --json-path ./docs/definitions/bond-issuance-state.json
+
+simplicity-cli bond verify \
+  --artifact ./bond-issuance.artifact.json \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --issuance-json ./docs/definitions/bond-issuance-state.json
+```
+
 ## Install
 
 You need three things:
@@ -811,6 +887,9 @@ These examples are included to help you jump to the right workflow quickly.
 - [gasless-transfer.ts](./examples/gasless-transfer.ts): standard relayer-backed gasless L-BTC transfer.
 - [define-bond.ts](./examples/define-bond.ts): compile a bond example with a trusted definition hash anchor.
 - [show-bond-definition.ts](./examples/show-bond-definition.ts): verify and retrieve a trusted bond definition from JSON + artifact.
+- [define-bond-issuance.ts](./examples/define-bond-issuance.ts): compile a bond example with both trusted definition and issuance state anchors.
+- [show-bond-issuance.ts](./examples/show-bond-issuance.ts): load a bond artifact together with its verified issuance state.
+- [verify-bond-issuance.ts](./examples/verify-bond-issuance.ts): run combined Bond definition/state verification and invariant checks.
 
 In addition to the in-repo examples, the package has also been validated from a blank external consumer project with:
 - `npm install @hazbase/simplicity`
@@ -842,6 +921,16 @@ When you compile with `definition: { ... }`, the artifact also carries:
 - `anchorMode`
 
 That is what allows the SDK and CLI to verify that an off-chain JSON definition still matches the contract you compiled.
+
+When you also compile with `state: { ... }`, the artifact can additionally carry:
+- `stateType`
+- `stateId`
+- `schemaVersion`
+- `hash`
+- `trustMode`
+- `anchorMode`
+
+That is what allows the SDK and CLI to verify that an off-chain issuance state document still matches the contract you compiled.
 
 ### When should I use a preset instead of a custom `.simf` file?
 

@@ -76,6 +76,7 @@ export interface SimplicityArtifact {
     notes: string | null;
   };
   definition?: ArtifactDefinitionMetadata;
+  state?: ArtifactStateMetadata;
   legacy?: {
     simfTemplatePath?: string;
     params?: {
@@ -92,6 +93,7 @@ export interface CompileFromFileInput {
   templateVars?: Record<string, string | number>;
   artifactPath?: string;
   definition?: DefinitionInput;
+  state?: StateDocumentInput;
 }
 
 export interface CompileFromPresetInput {
@@ -99,6 +101,7 @@ export interface CompileFromPresetInput {
   params: Record<string, string | number>;
   artifactPath?: string;
   definition?: DefinitionInput;
+  state?: StateDocumentInput;
 }
 
 export interface DefinitionInput {
@@ -119,6 +122,24 @@ export interface DefinitionDescriptor {
   sourcePath?: string;
 }
 
+export interface StateDocumentInput {
+  type: string;
+  id: string;
+  schemaVersion?: string;
+  jsonPath?: string;
+  value?: unknown;
+  anchorMode?: DefinitionAnchorMode;
+}
+
+export interface StateDocumentDescriptor {
+  stateType: string;
+  stateId: string;
+  schemaVersion: string;
+  canonicalJson: string;
+  hash: string;
+  sourcePath?: string;
+}
+
 export interface ArtifactDefinitionMetadata {
   definitionType: string;
   definitionId: string;
@@ -129,6 +150,20 @@ export interface ArtifactDefinitionMetadata {
   onChainAnchor?: {
     helper: "nonzero-eq_256";
     templateVar: "DEFINITION_HASH";
+    sourceVerified: boolean;
+  };
+}
+
+export interface ArtifactStateMetadata {
+  stateType: string;
+  stateId: string;
+  schemaVersion: string;
+  hash: string;
+  trustMode: DefinitionTrustMode;
+  anchorMode: DefinitionAnchorMode;
+  onChainAnchor?: {
+    helper: "nonzero-eq_256";
+    templateVar: "STATE_HASH";
     sourceVerified: boolean;
   };
 }
@@ -207,6 +242,13 @@ export interface PsetSummary {
   bondDefinitionId?: string | null;
   periodId?: string | null;
   definition?: {
+    type: string | null;
+    id: string | null;
+    hash: string | null;
+    trustMode: DefinitionTrustMode | null;
+    anchorMode: DefinitionAnchorMode | null;
+  };
+  state?: {
     type: string | null;
     id: string | null;
     hash: string | null;
@@ -296,6 +338,43 @@ export interface DefinitionVerificationResult {
     onChainAnchorVerified: boolean;
     effectiveMode: "none" | DefinitionAnchorMode;
   };
+}
+
+export interface StateVerificationResult {
+  ok: boolean;
+  reason?: string;
+  state: StateDocumentDescriptor;
+  artifactState?: ArtifactStateMetadata;
+  trust: {
+    artifactMatch: boolean;
+    onChainAnchorPresent: boolean;
+    onChainAnchorVerified: boolean;
+    effectiveMode: "none" | DefinitionAnchorMode;
+  };
+}
+
+export interface BondDefinition {
+  bondId: string;
+  issuer: string;
+  faceValue: number;
+  couponBps: number;
+  issueDate: string;
+  maturityDate: number;
+  currencyAssetId: string;
+  controllerXonly: string;
+}
+
+export interface BondIssuanceState {
+  issuanceId: string;
+  bondId: string;
+  issuerEntityId: string;
+  issuedPrincipal: number;
+  outstandingPrincipal: number;
+  redeemedPrincipal: number;
+  currencyAssetId: string;
+  controllerXonly: string;
+  issuedAt: string;
+  status: "ISSUED" | "REDEEMED";
 }
 
 export interface WaitForFundingInput {

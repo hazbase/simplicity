@@ -24,6 +24,12 @@ export function normalizeArtifact(
             anchorMode: current.definition.anchorMode ?? "artifact-hash-anchor",
           }
         : undefined,
+      state: current.state
+        ? {
+            ...current.state,
+            anchorMode: current.state.anchorMode ?? "artifact-hash-anchor",
+          }
+        : undefined,
     };
   }
   if (!isArtifactV5(artifact)) {
@@ -65,6 +71,7 @@ export function normalizeArtifact(
       notes: null,
     },
     definition: undefined,
+    state: undefined,
     legacy: {
       simfTemplatePath: artifact.simfTemplatePath,
       params: artifact.params,
@@ -104,6 +111,7 @@ export async function loadArtifact(
         }
       : undefined,
     definition: normalized.definition,
+    state: normalized.state,
   };
 }
 

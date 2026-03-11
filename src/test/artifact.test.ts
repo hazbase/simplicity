@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadArtifact, normalizeArtifact, saveArtifact } from "../core/artifact";
 import { loadDefinitionInput, buildArtifactDefinitionMetadata } from "../core/definition";
+import { buildArtifactStateMetadata, loadStateInput } from "../core/state";
 
 test("normalizeArtifact upgrades v5 artifact to v6", () => {
   const artifact = normalizeArtifact({
@@ -126,4 +127,55 @@ test("saveArtifact/loadArtifact roundtrip preserves on-chain anchor metadata", a
   assert.equal(loaded.definition?.anchorMode, "on-chain-constant-committed");
   assert.equal(loaded.definition?.onChainAnchor?.helper, "nonzero-eq_256");
   assert.equal(loaded.definition?.onChainAnchor?.sourceVerified, true);
+});
+
+test("saveArtifact/loadArtifact roundtrip preserves state metadata", async () => {
+  const state = await loadStateInput({
+    type: "bond-issuance",
+    id: "ISSUE-1",
+    value: { bondId: "BOND-1", issuedPrincipal: 100, outstandingPrincipal: 100, redeemedPrincipal: 0 },
+  });
+  const dir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-artifact-"));
+  const simfPath = path.join(dir, "contract.simf");
+  const artifactPath = path.join(dir, "artifact.json");
+  await writeFile(simfPath, "main := unit", "utf8");
+  await saveArtifact(artifactPath, {
+    version: 6,
+    kind: "simplicity-artifact",
+    createdAt: "2026-03-10T00:00:00.000Z",
+    network: "liquidtestnet",
+    source: {
+      mode: "file",
+      simfPath,
+      templateVars: {},
+    },
+    compiled: {
+      program: "prog",
+      cmr: "cmr",
+      internalKey: "internal",
+      contractAddress: "tex1",
+    },
+    toolchain: {
+      simcPath: "simc",
+      halSimplicity: "hal-simplicity",
+    },
+    metadata: {
+      sdkVersion: "0.0.3",
+      notes: null,
+    },
+    state: buildArtifactStateMetadata(state, {
+      anchorMode: "on-chain-constant-committed",
+      onChainAnchor: {
+        helper: "nonzero-eq_256",
+        templateVar: "STATE_HASH",
+        sourceVerified: true,
+      },
+    }),
+  });
+
+  const loaded = await loadArtifact(artifactPath, "liquidtestnet");
+  assert.equal(loaded.state?.stateType, "bond-issuance");
+  assert.equal(loaded.state?.stateId, "ISSUE-1");
+  assert.equal(loaded.state?.anchorMode, "on-chain-constant-committed");
+  assert.equal(loaded.state?.onChainAnchor?.templateVar, "STATE_HASH");
 });

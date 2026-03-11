@@ -1,0 +1,12 @@
+{
+  "issuanceId": "BOND-2026-001-ISSUE-1",
+  "bondId": "BOND-2026-001",
+  "issuerEntityId": "hazbase-treasury",
+  "issuedPrincipal": 1000000,
+  "outstandingPrincipal": 1000000,
+  "redeemedPrincipal": 0,
+  "currencyAssetId": "bitcoin",
+  "controllerXonly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  "issuedAt": "2026-03-10T00:00:00Z",
+  "status": "ISSUED"
+}

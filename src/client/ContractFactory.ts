@@ -1,5 +1,11 @@
 import { saveArtifact } from "../core/artifact";
-import { ArtifactDefinitionMetadata, DeploymentInfo, SimplicityArtifact, SimplicityClientConfig } from "../core/types";
+import {
+  ArtifactDefinitionMetadata,
+  ArtifactStateMetadata,
+  DeploymentInfo,
+  SimplicityArtifact,
+  SimplicityClientConfig,
+} from "../core/types";
 import { DeployedContract } from "./DeployedContract";
 
 export class CompiledContract {
@@ -22,6 +28,10 @@ export class CompiledContract {
 
   definition(): ArtifactDefinitionMetadata | null {
     return this.artifact.definition ?? null;
+  }
+
+  state(): ArtifactStateMetadata | null {
+    return this.artifact.state ?? null;
   }
 
   deployment(): DeploymentInfo {

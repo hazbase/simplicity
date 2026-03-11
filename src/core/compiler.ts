@@ -5,6 +5,7 @@ import { normalizeArtifact, saveArtifact, SDK_PACKAGE_VERSION } from "./artifact
 import { buildArtifactDefinitionMetadata, detectOnChainDefinitionAnchor, loadDefinitionInput } from "./definition";
 import { CompilerError, UnsupportedFeatureError, ValidationError } from "./errors";
 import { getPresetOrThrow, validatePresetParams } from "./presets";
+import { buildArtifactStateMetadata, detectOnChainStateAnchor, loadStateInput } from "./state";
 import { renderTemplate } from "./templating";
 import { runCommand, runHalInfo, runSimcCompile } from "./toolchain";
 import { CompileFromFileInput, CompileFromPresetInput, SimplicityArtifact, SimplicityClientConfig } from "./types";
@@ -45,6 +46,20 @@ async function buildArtifact(input: {
     onChainAnchor?: {
       helper: "nonzero-eq_256";
       templateVar: "DEFINITION_HASH";
+      sourceVerified: boolean;
+    };
+  };
+  state?: {
+    stateType: string;
+    stateId: string;
+    schemaVersion: string;
+    canonicalJson: string;
+    hash: string;
+    sourcePath?: string;
+    anchorMode?: "artifact-hash-anchor" | "on-chain-constant-committed";
+    onChainAnchor?: {
+      helper: "nonzero-eq_256";
+      templateVar: "STATE_HASH";
       sourceVerified: boolean;
     };
   };
@@ -98,6 +113,12 @@ async function buildArtifact(input: {
             onChainAnchor: input.definition.onChainAnchor,
           })
         : undefined,
+      state: input.state
+        ? buildArtifactStateMetadata(input.state, {
+            anchorMode: input.state.anchorMode,
+            onChainAnchor: input.state.onChainAnchor,
+          })
+        : undefined,
       legacy: {
         simfTemplatePath: input.sourceSimfPath,
         params: {
@@ -115,6 +136,7 @@ export async function compileFromFile(
   input: CompileFromFileInput
 ): Promise<SimplicityArtifact> {
   const definition = input.definition ? await loadDefinitionInput(input.definition) : undefined;
+  const state = input.state ? await loadStateInput(input.state) : undefined;
   if (definition && input.templateVars?.DEFINITION_HASH !== undefined) {
     throw new ValidationError(
       "DEFINITION_HASH must not be provided explicitly when definition metadata is supplied",
@@ -127,8 +149,21 @@ export async function compileFromFile(
       { code: "DEFINITION_ID_OVERRIDE_FORBIDDEN" }
     );
   }
+  if (state && input.templateVars?.STATE_HASH !== undefined) {
+    throw new ValidationError(
+      "STATE_HASH must not be provided explicitly when state metadata is supplied",
+      { code: "STATE_HASH_OVERRIDE_FORBIDDEN" }
+    );
+  }
+  if (state && input.templateVars?.STATE_ID !== undefined) {
+    throw new ValidationError(
+      "STATE_ID must not be provided explicitly when state metadata is supplied",
+      { code: "STATE_ID_OVERRIDE_FORBIDDEN" }
+    );
+  }
   const rawSource = await readFile(input.simfPath, "utf8");
   let onChainAnchor: { helper: "nonzero-eq_256"; templateVar: "DEFINITION_HASH"; sourceVerified: boolean } | undefined;
+  let onChainStateAnchor: { helper: "nonzero-eq_256"; templateVar: "STATE_HASH"; sourceVerified: boolean } | undefined;
   if (input.definition?.anchorMode === "on-chain-constant-committed") {
     const detection = detectOnChainDefinitionAnchor(rawSource);
     if (!rawSource.includes("{{DEFINITION_HASH}}")) {
@@ -152,10 +187,33 @@ export async function compileFromFile(
       sourceVerified: true,
     };
   }
+  if (input.state?.anchorMode === "on-chain-constant-committed") {
+    const detection = detectOnChainStateAnchor(rawSource);
+    if (!rawSource.includes("{{STATE_HASH}}")) {
+      throw new ValidationError(
+        "Requested on-chain constant-committed state anchor, but the .simf source does not contain {{STATE_HASH}}",
+        { code: "STATE_HASH_PLACEHOLDER_MISSING" }
+      );
+    }
+    if (!detection.sourceVerified || !detection.helper) {
+      const code = detection.reason?.includes("called")
+        ? "STATE_ONCHAIN_HELPER_NOT_CALLED"
+        : "STATE_ONCHAIN_HELPER_MISSING";
+      throw new ValidationError(
+        `Requested on-chain constant-committed state anchor, but the .simf source does not contain the required state helper pattern: ${detection.reason ?? "unknown reason"}`,
+        { code }
+      );
+    }
+    onChainStateAnchor = {
+      helper: detection.helper,
+      templateVar: "STATE_HASH",
+      sourceVerified: true,
+    };
+  }
   const templateVars = {
     ...(input.templateVars ?? {}),
-    ...(definition && input.templateVars?.DEFINITION_HASH === undefined ? { DEFINITION_HASH: definition.hash } : {}),
-    ...(definition && input.templateVars?.DEFINITION_ID === undefined ? { DEFINITION_ID: definition.definitionId } : {}),
+    ...(definition ? { DEFINITION_HASH: definition.hash, DEFINITION_ID: definition.definitionId } : {}),
+    ...(state ? { STATE_HASH: state.hash, STATE_ID: state.stateId } : {}),
   };
   const rendered = renderTemplate(rawSource, templateVars);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-compile-"));
@@ -165,13 +223,20 @@ export async function compileFromFile(
     config,
     renderedSimfPath: renderedPath,
     sourceMode: "file",
-    sourceSimfPath: input.simfPath,
+    sourceSimfPath: path.resolve(input.simfPath),
     templateVars,
     definition: definition
       ? {
           ...definition,
           anchorMode: input.definition?.anchorMode ?? "artifact-hash-anchor",
           onChainAnchor,
+        }
+      : undefined,
+    state: state
+      ? {
+          ...state,
+          anchorMode: input.state?.anchorMode ?? "artifact-hash-anchor",
+          onChainAnchor: onChainStateAnchor,
         }
       : undefined,
   });
@@ -192,7 +257,14 @@ export async function compileFromPreset(
       { code: "DEFINITION_ANCHOR_MODE_UNSUPPORTED_FOR_PRESET", preset: preset.id }
     );
   }
+  if (input.state?.anchorMode === "on-chain-constant-committed") {
+    throw new UnsupportedFeatureError(
+      `Preset '${preset.id}' does not yet support on-chain constant-committed state anchors`,
+      { code: "STATE_ANCHOR_MODE_UNSUPPORTED_FOR_PRESET", preset: preset.id }
+    );
+  }
   const definition = input.definition ? await loadDefinitionInput(input.definition) : undefined;
+  const state = input.state ? await loadStateInput(input.state) : undefined;
   if (definition && input.params.DEFINITION_HASH !== undefined) {
     throw new ValidationError(
       "DEFINITION_HASH must not be provided explicitly when definition metadata is supplied",
@@ -205,10 +277,22 @@ export async function compileFromPreset(
       { code: "DEFINITION_ID_OVERRIDE_FORBIDDEN" }
     );
   }
+  if (state && input.params.STATE_HASH !== undefined) {
+    throw new ValidationError(
+      "STATE_HASH must not be provided explicitly when state metadata is supplied",
+      { code: "STATE_HASH_OVERRIDE_FORBIDDEN" }
+    );
+  }
+  if (state && input.params.STATE_ID !== undefined) {
+    throw new ValidationError(
+      "STATE_ID must not be provided explicitly when state metadata is supplied",
+      { code: "STATE_ID_OVERRIDE_FORBIDDEN" }
+    );
+  }
   const params = {
     ...validatePresetParams(preset, input.params),
-    ...(definition && input.params.DEFINITION_HASH === undefined ? { DEFINITION_HASH: definition.hash } : {}),
-    ...(definition && input.params.DEFINITION_ID === undefined ? { DEFINITION_ID: definition.definitionId } : {}),
+    ...(definition ? { DEFINITION_HASH: definition.hash, DEFINITION_ID: definition.definitionId } : {}),
+    ...(state ? { STATE_HASH: state.hash, STATE_ID: state.stateId } : {}),
   };
   const rawSource = await readFile(preset.simfTemplatePath, "utf8");
   const rendered = renderTemplate(rawSource, params);
@@ -226,6 +310,12 @@ export async function compileFromPreset(
       ? {
           ...definition,
           anchorMode: input.definition?.anchorMode ?? "artifact-hash-anchor",
+        }
+      : undefined,
+    state: state
+      ? {
+          ...state,
+          anchorMode: input.state?.anchorMode ?? "artifact-hash-anchor",
         }
       : undefined,
   });

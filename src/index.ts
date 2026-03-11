@@ -12,3 +12,15 @@ export {
   verifyDefinitionAgainstArtifact,
   verifyDefinitionDescriptorAgainstArtifact,
 } from "./core/definition";
+export {
+  loadStateInput,
+  buildArtifactStateMetadata,
+  verifyStateAgainstArtifact,
+  verifyStateDescriptorAgainstArtifact,
+} from "./core/state";
+export { defineBond, verifyBond, loadBond } from "./domain/bond";
+export {
+  validateBondDefinition,
+  validateBondIssuanceState,
+  validateBondCrossChecks,
+} from "./domain/bondValidation";

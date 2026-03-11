@@ -3,10 +3,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadArtifact } from "./core/artifact";
 import { loadDefinitionInput } from "./core/definition";
+import { loadStateInput } from "./core/state";
 import { describePreset, getPresetOrThrow, listPresets } from "./core/presets";
 import { SimplicitySdkError } from "./core/errors";
 import { createSimplicityClient } from "./client/SimplicityClient";
-import { ContractUtxo, DefinitionInput, PresetManifestEntry, SimplicityClientConfig } from "./core/types";
+import {
+  ContractUtxo,
+  DefinitionInput,
+  PresetManifestEntry,
+  SimplicityClientConfig,
+  StateDocumentInput,
+} from "./core/types";
 
 function getArg(name: string, defaultValue?: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -79,6 +86,26 @@ function parseDefinitionInput(): DefinitionInput | undefined {
   const valueJson = getArg("definition-value");
   const schemaVersion = getArg("definition-schema-version");
   const anchorMode = getArg("definition-anchor-mode") as DefinitionInput["anchorMode"] | undefined;
+  if (!type && !id && !jsonPath && !valueJson && !schemaVersion && !anchorMode) {
+    return undefined;
+  }
+  return {
+    type: type ?? "",
+    id: id ?? "",
+    schemaVersion: schemaVersion ?? undefined,
+    jsonPath,
+    value: valueJson ? JSON.parse(valueJson) : undefined,
+    anchorMode,
+  };
+}
+
+function parseStateInput(): StateDocumentInput | undefined {
+  const type = getArg("state-type");
+  const id = getArg("state-id");
+  const jsonPath = getArg("state-json");
+  const valueJson = getArg("state-value");
+  const schemaVersion = getArg("state-schema-version");
+  const anchorMode = getArg("state-anchor-mode") as StateDocumentInput["anchorMode"] | undefined;
   if (!type && !id && !jsonPath && !valueJson && !schemaVersion && !anchorMode) {
     return undefined;
   }
@@ -416,6 +443,18 @@ function formatArtifactHelp(
         `  source verified: ${artifact.definition.onChainAnchor?.sourceVerified === true ? "yes" : "no"}`,
       ].join("\n")
     : "  (none)";
+  const state = artifact.state
+    ? [
+        `  type: ${artifact.state.stateType}`,
+        `  id: ${artifact.state.stateId}`,
+        `  schema version: ${artifact.state.schemaVersion}`,
+        `  hash: ${artifact.state.hash}`,
+        `  trust mode: ${artifact.state.trustMode}`,
+        `  anchor mode: ${artifact.state.anchorMode}`,
+        `  on-chain helper: ${artifact.state.onChainAnchor?.helper ?? "(none)"}`,
+        `  source verified: ${artifact.state.onChainAnchor?.sourceVerified === true ? "yes" : "no"}`,
+      ].join("\n")
+    : "  (none)";
   const compileSource = artifact.source.simfPath ?? artifact.legacy?.simfTemplatePath ?? "(unknown)";
   const templateVars = artifact.source.templateVars ?? {};
   const inspectCommand = `simplicity-cli contract inspect --artifact ./artifact.json --wallet simplicity-test --privkey <privkey-hex> --to-address tex1...`;
@@ -437,6 +476,9 @@ function formatArtifactHelp(
     "",
     "Definition Anchor:",
     definition,
+    "",
+    "State Anchor:",
+    state,
     "",
     "Suggested Commands:",
     `  ${inspectCommand}`,
@@ -483,7 +525,7 @@ async function main(): Promise<void> {
   const sdk = createSimplicityClient(resolveConfig());
 
   if (!command) {
-    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|gasless> ...");
+    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|bond|gasless> ...");
   }
 
   if (command === "compile") {
@@ -492,6 +534,7 @@ async function main(): Promise<void> {
       templateVars: parseAssignments(getMultiArgs("template-var")),
       artifactPath: getArg("artifact"),
       definition: parseDefinitionInput(),
+      state: parseStateInput(),
     });
     printJson({ artifact: result.artifact, deployment: result.deployment() });
     return;
@@ -528,6 +571,42 @@ async function main(): Promise<void> {
       reason: verification.reason,
       definition: verification.definition,
       artifactDefinition: verification.artifactDefinition ?? null,
+      trust: verification.trust,
+    });
+    return;
+  }
+
+  if (command === "state" && subcommand === "show") {
+    const state = await loadStateInput({
+      type: requireArg("type"),
+      id: requireArg("id"),
+      jsonPath: getArg("json-path"),
+      value: getArg("value") ? JSON.parse(getArg("value")!) : undefined,
+      schemaVersion: getArg("schema-version"),
+    });
+    printJson({
+      ...state,
+      anchorRecommendation: "Use --state-anchor-mode on-chain-constant-committed with a blessed custom .simf helper for on-chain enforcement",
+    });
+    return;
+  }
+
+  if (command === "state" && subcommand === "verify") {
+    const verification = await sdk.verifyStateAgainstArtifact({
+      artifactPath: requireArg("artifact"),
+      type: getArg("type"),
+      id: getArg("id"),
+      expectedType: getArg("expected-type"),
+      expectedId: getArg("expected-id"),
+      jsonPath: getArg("json-path"),
+      value: getArg("value") ? JSON.parse(getArg("value")!) : undefined,
+      schemaVersion: getArg("schema-version"),
+    });
+    printJson({
+      verified: verification.ok,
+      reason: verification.reason,
+      state: verification.state,
+      artifactState: verification.artifactState ?? null,
       trust: verification.trust,
     });
     return;
@@ -579,6 +658,7 @@ async function main(): Promise<void> {
       params,
       artifactPath: getArg("artifact"),
       definition: parseDefinitionInput(),
+      state: parseStateInput(),
     });
     printJson({ artifact: result.artifact, deployment: result.deployment() });
     return;
@@ -607,6 +687,27 @@ async function main(): Promise<void> {
       status: classifyArtifactStatus(utxos),
       ready: classifyArtifactStatus(utxos) === "executable",
     });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "define") {
+    const result = await sdk.bonds.defineBond({
+      definitionPath: getArg("definition-json"),
+      issuancePath: getArg("issuance-json"),
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({ artifact: result.artifact, deployment: result.deployment() });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "verify") {
+    const result = await sdk.bonds.verifyBond({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      issuancePath: getArg("issuance-json"),
+    });
+    printJson(result);
     return;
   }
 

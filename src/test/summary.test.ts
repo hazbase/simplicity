@@ -37,3 +37,26 @@ test("summary includes definition anchorMode deterministically", () => {
   assert.equal(left.canonicalJson, right.canonicalJson);
   assert.equal(left.hash, right.hash);
 });
+
+test("summary includes state anchorMode deterministically", () => {
+  const left = summarize({
+    state: {
+      type: "bond-issuance",
+      id: "ISSUE-1",
+      hash: "def",
+      trustMode: "hash-anchor",
+      anchorMode: "on-chain-constant-committed",
+    },
+  });
+  const right = summarize({
+    state: {
+      anchorMode: "on-chain-constant-committed",
+      trustMode: "hash-anchor",
+      hash: "def",
+      id: "ISSUE-1",
+      type: "bond-issuance",
+    },
+  });
+  assert.equal(left.canonicalJson, right.canonicalJson);
+  assert.equal(left.hash, right.hash);
+});
