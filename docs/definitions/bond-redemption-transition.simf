@@ -1,0 +1,41 @@
+/*
+ * Bond redemption transition contract.
+ * Commits definition hash, previous issuance state hash, and next issuance state hash.
+ */
+fn not(bit: bool) -> bool {
+    <u1>::into(jet::complement_1(<bool>::into(bit)))
+}
+
+fn require_definition_anchor() {
+    let anchored_definition_hash: u256 = 0x{{DEFINITION_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_definition_hash, zero_hash)));
+}
+
+fn require_previous_state_anchor() {
+    let previous_state_hash: u256 = 0x{{PREVIOUS_STATE_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(previous_state_hash, zero_hash)));
+}
+
+fn require_state_anchor() {
+    let anchored_state_hash: u256 = 0x{{STATE_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_state_hash, zero_hash)));
+}
+
+fn require_distinct_transition_state() {
+    let previous_state_hash: u256 = 0x{{PREVIOUS_STATE_HASH}};
+    let next_state_hash: u256 = 0x{{STATE_HASH}};
+    assert!(not(jet::eq_256(previous_state_hash, next_state_hash)));
+}
+
+fn main() {
+    require_definition_anchor();
+    require_previous_state_anchor();
+    require_state_anchor();
+    require_distinct_transition_state();
+    jet::check_lock_height({{MIN_HEIGHT}});
+    let signer: Pubkey = 0x{{SIGNER_XONLY}};
+    jet::bip_0340_verify((signer, jet::sig_all_hash()), witness::SIGNER_SIGNATURE)
+}

@@ -711,6 +711,321 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "bond" && subcommand === "redeem") {
+    const preview = await sdk.bonds.buildBondRedemption({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      amount: Number(requireArg("amount")),
+      redeemedAt: requireArg("redeemed-at"),
+    });
+    const nextIssuanceOut = getArg("next-issuance-out");
+    if (nextIssuanceOut) {
+      const resolved = path.resolve(nextIssuanceOut);
+      await mkdir(path.dirname(resolved), { recursive: true });
+      await writeFile(`${resolved}`, `${JSON.stringify(preview.next, null, 2)}\n`, "utf8");
+    }
+    const result = await sdk.bonds.redeemBond({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      amount: Number(requireArg("amount")),
+      redeemedAt: requireArg("redeemed-at"),
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({
+      artifact: result.artifact,
+      deployment: result.deployment(),
+      previousHash: preview.previousHash,
+      nextHash: preview.nextHash,
+      transition: preview.transition,
+      nextIssuanceState: preview.next,
+      nextIssuanceOut: nextIssuanceOut ? path.resolve(nextIssuanceOut) : undefined,
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "verify-transition") {
+    const result = await sdk.bonds.verifyBondTransition({
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "compile-transition") {
+    const result = await sdk.bonds.compileBondTransition({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({
+      artifact: result.compiled.artifact,
+      deployment: result.compiled.deployment(),
+      previousHash: result.previousHash,
+      nextHash: result.nextHash,
+      transition: result.transition,
+      payload: result.payload,
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "compile-redemption-machine") {
+    const result = await sdk.bonds.compileBondRedemptionMachine({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({
+      artifact: result.compiled.artifact,
+      deployment: result.compiled.deployment(),
+      previousHash: result.previousHash,
+      nextHash: result.nextHash,
+      redeemAmount: result.redeemAmount,
+      transitionKind: result.transitionKind,
+      nextStateContractAddress: result.nextStateContractAddress,
+      nextStateContractAddressHash: result.nextStateContractAddressHash,
+      settlementDescriptor: result.settlementDescriptor,
+      settlementDescriptorHash: result.settlementDescriptorHash,
+      transition: result.transition,
+      payload: result.payload,
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "verify-machine") {
+    const result = await sdk.bonds.verifyBondRedemptionMachineArtifact({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "settlement-payload") {
+    const result = await sdk.bonds.buildBondSettlementPayload({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      nextAmountSat: Number(requireArg("next-amount-sat")),
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "verify-settlement") {
+    const result = await sdk.bonds.verifyBondSettlementDescriptor({
+      descriptorPath: getArg("descriptor-json"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "plan-rollover") {
+    const result = await sdk.bonds.buildBondRolloverPlan({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextSimfPath: getArg("next-simf"),
+      nextArtifactPath: getArg("next-artifact"),
+    });
+    printJson({
+      currentArtifact: result.currentArtifact,
+      nextArtifact: result.nextCompiled.artifact,
+      nextDeployment: result.nextCompiled.deployment(),
+      nextContractAddress: result.nextContractAddress,
+      transitionPayload: result.transitionPayload,
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "plan-machine-rollover") {
+    const result = await sdk.bonds.buildBondMachineRolloverPlan({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      machineSimfPath: getArg("machine-simf"),
+      machineArtifactPath: getArg("machine-artifact"),
+    });
+    printJson({
+      currentArtifact: result.currentArtifact,
+      machineArtifact: result.machineCompiled.compiled.artifact,
+      machineDeployment: result.machineCompiled.compiled.deployment(),
+      machineVerification: result.machineVerification,
+      nextContractAddress: result.nextContractAddress,
+      transitionPayload: result.transitionPayload,
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "inspect-rollover") {
+    const result = await sdk.bonds.inspectBondStateRollover({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextSimfPath: getArg("next-simf"),
+      nextArtifactPath: getArg("next-artifact"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "inspect-machine-rollover") {
+    const result = await sdk.bonds.inspectBondMachineRollover({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      machineSimfPath: getArg("machine-simf"),
+      machineArtifactPath: getArg("machine-artifact"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "execute-rollover") {
+    const result = await sdk.bonds.executeBondStateRollover({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextSimfPath: getArg("next-simf"),
+      nextArtifactPath: getArg("next-artifact"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "execute-machine-rollover") {
+    const result = await sdk.bonds.executeBondMachineRollover({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      machineSimfPath: getArg("machine-simf"),
+      machineArtifactPath: getArg("machine-artifact"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "plan-machine-settlement") {
+    const result = await sdk.bonds.buildBondMachineSettlementPlan({
+      currentMachineArtifactPath: requireArg("current-machine-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextSimfPath: getArg("next-simf"),
+      nextArtifactPath: getArg("next-artifact"),
+    });
+    printJson({
+      currentMachineArtifact: result.currentMachineArtifact,
+      machineVerification: result.machineVerification,
+      nextArtifact: result.nextCompiled.artifact,
+      nextDeployment: result.nextCompiled.deployment(),
+      nextContractAddress: result.nextContractAddress,
+      transitionPayload: result.transitionPayload,
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "inspect-machine-settlement") {
+    const result = await sdk.bonds.inspectBondMachineSettlement({
+      currentMachineArtifactPath: requireArg("current-machine-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextSimfPath: getArg("next-simf"),
+      nextArtifactPath: getArg("next-artifact"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "execute-machine-settlement") {
+    const result = await sdk.bonds.executeBondMachineSettlement({
+      currentMachineArtifactPath: requireArg("current-machine-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextSimfPath: getArg("next-simf"),
+      nextArtifactPath: getArg("next-artifact"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "transition-payload") {
+    const result = await sdk.bonds.buildBondTransitionPayload({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+    });
+    printJson(result);
+    return;
+  }
+
+  if (command === "bond" && subcommand === "payload") {
+    const result = await sdk.bonds.buildBondPayload({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      issuancePath: getArg("issuance-json"),
+    });
+    printJson(result);
+    return;
+  }
+
   if (command === "contract" && subcommand === "wait-funding") {
     const compiled = await sdk.loadArtifact(requireArg("artifact"));
     const utxos = await compiled.at().waitForFunding({

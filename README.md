@@ -170,6 +170,34 @@ For Bond issuance, the recommended shape is:
 }
 ```
 
+To move from an issued bond into a redemption state, the SDK now also supports a minimal state transition model:
+
+- `ISSUED -> PARTIALLY_REDEEMED`
+- `ISSUED/PARTIALLY_REDEEMED -> REDEEMED`
+
+The next state records:
+
+- `previousStateHash`
+- `lastTransition.type`
+- `lastTransition.amount`
+- `lastTransition.at`
+
+and the SDK verifies the principal invariant:
+
+- `issuedPrincipal = outstandingPrincipal + redeemedPrincipal`
+
+On top of that, the SDK can now build a `BondSettlementDescriptor`, which bundles the intended settlement envelope into one canonical document:
+
+- `definitionHash`
+- `previousStateHash`
+- `nextStateHash`
+- `nextContractAddress`
+- `nextAmountSat`
+- `maxFeeSat`
+- status progression and principal deltas
+
+The redemption machine commits that settlement descriptor hash as an additional anchor. This does not yet mean full runtime output introspection, but it does mean the machine can now honestly claim a committed settlement envelope instead of just a scattered set of fields.
+
 Minimal TypeScript flow:
 
 ```ts
@@ -190,6 +218,49 @@ console.log(verification.crossChecks.principalInvariantValid);
 console.log(verification.issuance.trust.effectiveMode);
 ```
 
+Minimal redemption flow:
+
+```ts
+const preview = await sdk.bonds.buildBondRedemption({
+  definitionPath: "./docs/definitions/bond-definition.json",
+  previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
+  amount: 250000,
+  redeemedAt: "2027-03-10T00:00:00Z",
+});
+
+const compiled = await sdk.bonds.redeemBond({
+  definitionPath: "./docs/definitions/bond-definition.json",
+  previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
+  amount: 250000,
+  redeemedAt: "2027-03-10T00:00:00Z",
+  simfPath: "./docs/definitions/bond-issuance-anchor.simf",
+  artifactPath: "./bond-redemption.artifact.json",
+});
+
+const transition = await sdk.bonds.verifyBondTransition({
+  previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
+  nextIssuancePath: "./docs/definitions/bond-issuance-state-partial-redemption.json",
+});
+
+const payload = await sdk.bonds.buildBondPayload({
+  artifactPath: "./bond-redemption.artifact.json",
+  definitionPath: "./docs/definitions/bond-definition.json",
+  issuancePath: "./docs/definitions/bond-issuance-state-partial-redemption.json",
+});
+
+const transitionPayload = await sdk.bonds.buildBondTransitionPayload({
+  definitionPath: "./docs/definitions/bond-definition.json",
+  previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
+  nextIssuancePath: "./docs/definitions/bond-issuance-state-partial-redemption.json",
+});
+
+console.log(preview.nextHash);
+console.log(compiled.state()?.hash);
+console.log(transition.transition.statusProgressionValid);
+console.log(payload.payload);
+console.log(transitionPayload.payload.redeemAmount);
+```
+
 CLI equivalents:
 
 ```bash
@@ -208,6 +279,65 @@ simplicity-cli bond verify \
   --artifact ./bond-issuance.artifact.json \
   --definition-json ./docs/definitions/bond-definition.json \
   --issuance-json ./docs/definitions/bond-issuance-state.json
+
+simplicity-cli bond redeem \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --amount 250000 \
+  --redeemed-at 2027-03-10T00:00:00Z \
+  --simf ./docs/definitions/bond-issuance-anchor.simf \
+  --next-issuance-out ./next-bond-issuance-state.json \
+  --artifact ./bond-redemption.artifact.json
+
+simplicity-cli bond verify-transition \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
+
+simplicity-cli bond compile-transition \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
+  --simf ./docs/definitions/bond-redemption-transition.simf \
+  --artifact ./bond-transition.artifact.json
+
+simplicity-cli bond compile-redemption-machine \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
+  --simf ./docs/definitions/bond-redemption-state-machine.simf \
+  --artifact ./bond-redemption-machine.artifact.json
+
+simplicity-cli bond verify-machine \
+  --artifact ./bond-redemption-machine.artifact.json \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
+
+simplicity-cli bond plan-rollover \
+  --current-artifact ./bond-issuance.artifact.json \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
+  --next-simf ./docs/definitions/bond-issuance-anchor.simf \
+  --next-artifact ./bond-next.artifact.json
+
+simplicity-cli bond plan-machine-rollover \
+  --current-artifact ./bond-issuance.artifact.json \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
+  --machine-simf ./docs/definitions/bond-redemption-state-machine.simf \
+  --machine-artifact ./bond-redemption-machine.artifact.json
+
+simplicity-cli bond transition-payload \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
+  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
+
+simplicity-cli bond payload \
+  --artifact ./bond-redemption.artifact.json \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
 ```
 
 ## Install
@@ -890,6 +1020,16 @@ These examples are included to help you jump to the right workflow quickly.
 - [define-bond-issuance.ts](./examples/define-bond-issuance.ts): compile a bond example with both trusted definition and issuance state anchors.
 - [show-bond-issuance.ts](./examples/show-bond-issuance.ts): load a bond artifact together with its verified issuance state.
 - [verify-bond-issuance.ts](./examples/verify-bond-issuance.ts): run combined Bond definition/state verification and invariant checks.
+- [redeem-bond-issuance.ts](./examples/redeem-bond-issuance.ts): build the next redemption state and compile a new anchored artifact.
+- [verify-bond-transition.ts](./examples/verify-bond-transition.ts): verify a previous/next issuance state transition.
+- [compile-bond-transition.ts](./examples/compile-bond-transition.ts): compile a transition contract that commits both previous and next issuance state hashes.
+- [compile-bond-redemption-machine.ts](./examples/compile-bond-redemption-machine.ts): compile a redemption transition contract that also commits redeem amount and transition kind.
+- [verify-bond-redemption-machine.ts](./examples/verify-bond-redemption-machine.ts): verify a compiled redemption machine artifact against definition, previous state, and next state inputs.
+- [plan-bond-rollover.ts](./examples/plan-bond-rollover.ts): build a runtime rollover plan that spends the current state UTXO into the next state's contract address.
+- [show-bond-transition-payload.ts](./examples/show-bond-transition-payload.ts): emit a bridge-ready payload for a previous/next redemption transition.
+- [show-bond-payload.ts](./examples/show-bond-payload.ts): emit a bridge-ready payload from a verified bond artifact.
+- [redeem-bond-issuance.ts](./examples/redeem-bond-issuance.ts): build a partially redeemed bond issuance state and anchor it in a new artifact.
+- [verify-bond-transition.ts](./examples/verify-bond-transition.ts): verify a redemption transition between two issuance state documents.
 
 In addition to the in-repo examples, the package has also been validated from a blank external consumer project with:
 - `npm install @hazbase/simplicity`

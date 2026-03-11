@@ -1,5 +1,11 @@
+import { stableStringify, sha256HexUtf8 } from "../core/summary";
 import { ValidationError } from "../core/errors";
-import { BondDefinition, BondIssuanceState } from "../core/types";
+import {
+  BondDefinition,
+  BondIssuanceState,
+  BondIssuanceStatus,
+  BondStateTransition,
+} from "../core/types";
 
 function assertNonEmptyString(value: unknown, code: string, message: string): void {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -11,6 +17,49 @@ function assertFiniteNumber(value: unknown, code: string, message: string): void
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new ValidationError(message, { code });
   }
+}
+
+function assertValidStatus(status: unknown): asserts status is BondIssuanceStatus {
+  if (status !== "ISSUED" && status !== "PARTIALLY_REDEEMED" && status !== "REDEEMED") {
+    throw new ValidationError("status must be ISSUED, PARTIALLY_REDEEMED, or REDEEMED", {
+      code: "BOND_STATUS_INVALID",
+    });
+  }
+}
+
+function validateBondTransition(value: unknown): BondStateTransition {
+  const transition = value as BondStateTransition;
+  if (transition.type !== "ISSUE" && transition.type !== "REDEEM") {
+    throw new ValidationError("lastTransition.type must be ISSUE or REDEEM", {
+      code: "BOND_TRANSITION_TYPE_INVALID",
+    });
+  }
+  assertFiniteNumber(
+    transition.amount,
+    "BOND_TRANSITION_AMOUNT_INVALID",
+    "lastTransition.amount must be a finite number"
+  );
+  if (transition.amount <= 0) {
+    throw new ValidationError("lastTransition.amount must be greater than 0", {
+      code: "BOND_TRANSITION_AMOUNT_INVALID",
+    });
+  }
+  assertNonEmptyString(
+    transition.at,
+    "BOND_TRANSITION_AT_INVALID",
+    "lastTransition.at must be a non-empty string"
+  );
+  if (Number.isNaN(Date.parse(transition.at))) {
+    throw new ValidationError("lastTransition.at must be an ISO8601 string", {
+      code: "BOND_TRANSITION_AT_INVALID",
+    });
+  }
+  return transition;
+}
+
+export function summarizeBondIssuanceState(state: BondIssuanceState): { canonicalJson: string; hash: string } {
+  const canonicalJson = stableStringify(state);
+  return { canonicalJson, hash: sha256HexUtf8(canonicalJson) };
 }
 
 export function validateBondDefinition(value: unknown): BondDefinition {
@@ -73,9 +122,7 @@ export function validateBondIssuanceState(value: unknown): BondIssuanceState {
     "controllerXonly must be a non-empty string"
   );
   assertNonEmptyString(issuance?.issuedAt, "BOND_ISSUED_AT_INVALID", "issuedAt must be a non-empty string");
-  if (issuance.status !== "ISSUED" && issuance.status !== "REDEEMED") {
-    throw new ValidationError("status must be ISSUED or REDEEMED", { code: "BOND_STATUS_INVALID" });
-  }
+  assertValidStatus(issuance.status);
   if (issuance.issuedPrincipal <= 0) {
     throw new ValidationError("issuedPrincipal must be greater than 0", { code: "BOND_PRINCIPAL_INVARIANT_INVALID" });
   }
@@ -89,6 +136,75 @@ export function validateBondIssuanceState(value: unknown): BondIssuanceState {
   }
   if (Number.isNaN(Date.parse(issuance.issuedAt))) {
     throw new ValidationError("issuedAt must be an ISO8601 string", { code: "BOND_ISSUED_AT_INVALID" });
+  }
+  if (issuance.previousStateHash !== undefined && issuance.previousStateHash !== null) {
+    assertNonEmptyString(
+      issuance.previousStateHash,
+      "BOND_PREVIOUS_STATE_HASH_INVALID",
+      "previousStateHash must be a non-empty string when provided"
+    );
+    if (!/^[0-9a-f]{64}$/i.test(issuance.previousStateHash)) {
+      throw new ValidationError("previousStateHash must be a 64-character hex string", {
+        code: "BOND_PREVIOUS_STATE_HASH_INVALID",
+      });
+    }
+  }
+  const transition = issuance.lastTransition ? validateBondTransition(issuance.lastTransition) : undefined;
+  if (issuance.status === "ISSUED") {
+    if (issuance.redeemedPrincipal !== 0 || issuance.outstandingPrincipal !== issuance.issuedPrincipal) {
+      throw new ValidationError("ISSUED state must have full outstanding principal and zero redeemed principal", {
+        code: "BOND_STATUS_TRANSITION_INVALID",
+      });
+    }
+    if (issuance.previousStateHash) {
+      throw new ValidationError("ISSUED state must not set previousStateHash", {
+        code: "BOND_PREVIOUS_STATE_HASH_INVALID",
+      });
+    }
+    if (transition && transition.type !== "ISSUE") {
+      throw new ValidationError("ISSUED state may only carry an ISSUE transition", {
+        code: "BOND_TRANSITION_TYPE_INVALID",
+      });
+    }
+  }
+  if (issuance.status === "PARTIALLY_REDEEMED") {
+    if (issuance.redeemedPrincipal <= 0 || issuance.outstandingPrincipal <= 0) {
+      throw new ValidationError("PARTIALLY_REDEEMED state must have both redeemed and outstanding principal", {
+        code: "BOND_STATUS_TRANSITION_INVALID",
+      });
+    }
+    if (!issuance.previousStateHash) {
+      throw new ValidationError("PARTIALLY_REDEEMED state must set previousStateHash", {
+        code: "BOND_PREVIOUS_STATE_HASH_INVALID",
+      });
+    }
+    if (!transition || transition.type !== "REDEEM") {
+      throw new ValidationError("PARTIALLY_REDEEMED state must carry a REDEEM transition", {
+        code: "BOND_TRANSITION_TYPE_INVALID",
+      });
+    }
+  }
+  if (issuance.status === "REDEEMED") {
+    if (issuance.outstandingPrincipal !== 0 || issuance.redeemedPrincipal !== issuance.issuedPrincipal) {
+      throw new ValidationError("REDEEMED state must have zero outstanding principal and full redeemed principal", {
+        code: "BOND_STATUS_TRANSITION_INVALID",
+      });
+    }
+    if (issuance.redeemedPrincipal <= 0) {
+      throw new ValidationError("REDEEMED state must have positive redeemed principal", {
+        code: "BOND_STATUS_TRANSITION_INVALID",
+      });
+    }
+    if (!issuance.previousStateHash) {
+      throw new ValidationError("REDEEMED state must set previousStateHash", {
+        code: "BOND_PREVIOUS_STATE_HASH_INVALID",
+      });
+    }
+    if (!transition || transition.type !== "REDEEM") {
+      throw new ValidationError("REDEEMED state must carry a REDEEM transition", {
+        code: "BOND_TRANSITION_TYPE_INVALID",
+      });
+    }
   }
   return issuance;
 }
@@ -130,4 +246,141 @@ export function validateBondCrossChecks(definition: BondDefinition, issuance: Bo
     });
   }
   return result;
+}
+
+export function validateBondStateTransition(
+  previous: BondIssuanceState,
+  next: BondIssuanceState
+): {
+  issuanceIdMatch: boolean;
+  bondIdMatch: boolean;
+  currencyMatch: boolean;
+  controllerMatch: boolean;
+  issuerEntityMatch: boolean;
+  issuedPrincipalMatch: boolean;
+  previousStateHashMatch: boolean;
+  redemptionArithmeticValid: boolean;
+  statusProgressionValid: boolean;
+} {
+  const previousHash = summarizeBondIssuanceState(previous).hash;
+  const result = {
+    issuanceIdMatch: previous.issuanceId === next.issuanceId,
+    bondIdMatch: previous.bondId === next.bondId,
+    currencyMatch: previous.currencyAssetId === next.currencyAssetId,
+    controllerMatch: previous.controllerXonly === next.controllerXonly,
+    issuerEntityMatch: previous.issuerEntityId === next.issuerEntityId,
+    issuedPrincipalMatch: previous.issuedPrincipal === next.issuedPrincipal,
+    previousStateHashMatch: next.previousStateHash === previousHash,
+    redemptionArithmeticValid: false,
+    statusProgressionValid: false,
+  };
+  if (!result.issuanceIdMatch) {
+    throw new ValidationError("Bond issuance transition issuanceId does not match", {
+      code: "BOND_ISSUANCE_ID_MISMATCH",
+    });
+  }
+  if (!result.bondIdMatch) {
+    throw new ValidationError("Bond issuance transition bondId does not match", {
+      code: "BOND_ID_MISMATCH",
+    });
+  }
+  if (!result.currencyMatch) {
+    throw new ValidationError("Bond issuance transition currencyAssetId does not match", {
+      code: "BOND_CURRENCY_MISMATCH",
+    });
+  }
+  if (!result.controllerMatch) {
+    throw new ValidationError("Bond issuance transition controllerXonly does not match", {
+      code: "BOND_CONTROLLER_MISMATCH",
+    });
+  }
+  if (!result.issuerEntityMatch) {
+    throw new ValidationError("Bond issuance transition issuerEntityId does not match", {
+      code: "BOND_ISSUER_ENTITY_MISMATCH",
+    });
+  }
+  if (!result.issuedPrincipalMatch) {
+    throw new ValidationError("Bond issuance transition issuedPrincipal must remain constant", {
+      code: "BOND_ISSUED_PRINCIPAL_MISMATCH",
+    });
+  }
+  if (!result.previousStateHashMatch) {
+    throw new ValidationError("Bond issuance transition previousStateHash does not match the prior state hash", {
+      code: "BOND_PREVIOUS_STATE_HASH_MISMATCH",
+    });
+  }
+
+  const transition = next.lastTransition;
+  if (!transition || transition.type !== "REDEEM") {
+    throw new ValidationError("Bond issuance transition must be a REDEEM transition", {
+      code: "BOND_TRANSITION_TYPE_INVALID",
+    });
+  }
+
+  const expectedOutstanding = previous.outstandingPrincipal - transition.amount;
+  const expectedRedeemed = previous.redeemedPrincipal + transition.amount;
+  result.redemptionArithmeticValid =
+    expectedOutstanding >= 0 &&
+    next.outstandingPrincipal === expectedOutstanding &&
+    next.redeemedPrincipal === expectedRedeemed;
+  if (!result.redemptionArithmeticValid) {
+    throw new ValidationError("Bond issuance redemption arithmetic is invalid", {
+      code: "BOND_REDEMPTION_ARITHMETIC_INVALID",
+    });
+  }
+
+  result.statusProgressionValid =
+    (previous.status === "ISSUED" || previous.status === "PARTIALLY_REDEEMED") &&
+    ((next.status === "PARTIALLY_REDEEMED" && next.outstandingPrincipal > 0) ||
+      (next.status === "REDEEMED" && next.outstandingPrincipal === 0));
+  if (!result.statusProgressionValid) {
+    throw new ValidationError("Bond issuance status progression is invalid", {
+      code: "BOND_STATUS_TRANSITION_INVALID",
+    });
+  }
+
+  return result;
+}
+
+export function buildRedeemedBondIssuanceState(input: {
+  previous: BondIssuanceState;
+  amount: number;
+  redeemedAt: string;
+}): BondIssuanceState {
+  assertFiniteNumber(input.amount, "BOND_TRANSITION_AMOUNT_INVALID", "amount must be a finite number");
+  if (input.amount <= 0) {
+    throw new ValidationError("amount must be greater than 0", { code: "BOND_TRANSITION_AMOUNT_INVALID" });
+  }
+  assertNonEmptyString(input.redeemedAt, "BOND_TRANSITION_AT_INVALID", "redeemedAt must be a non-empty string");
+  if (Number.isNaN(Date.parse(input.redeemedAt))) {
+    throw new ValidationError("redeemedAt must be an ISO8601 string", {
+      code: "BOND_TRANSITION_AT_INVALID",
+    });
+  }
+  const previous = validateBondIssuanceState(input.previous);
+  if (previous.status === "REDEEMED") {
+    throw new ValidationError("Cannot redeem an already redeemed bond issuance state", {
+      code: "BOND_ALREADY_REDEEMED",
+    });
+  }
+  if (input.amount > previous.outstandingPrincipal) {
+    throw new ValidationError("Redeem amount must not exceed outstandingPrincipal", {
+      code: "BOND_REDEEM_AMOUNT_EXCEEDS_OUTSTANDING",
+    });
+  }
+  const nextOutstanding = previous.outstandingPrincipal - input.amount;
+  const nextRedeemed = previous.redeemedPrincipal + input.amount;
+  const next: BondIssuanceState = {
+    ...previous,
+    outstandingPrincipal: nextOutstanding,
+    redeemedPrincipal: nextRedeemed,
+    previousStateHash: summarizeBondIssuanceState(previous).hash,
+    status: nextOutstanding === 0 ? "REDEEMED" : "PARTIALLY_REDEEMED",
+    lastTransition: {
+      type: "REDEEM",
+      amount: input.amount,
+      at: input.redeemedAt,
+    },
+  };
+  return validateBondIssuanceState(next);
 }

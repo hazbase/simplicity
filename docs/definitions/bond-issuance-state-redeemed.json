@@ -1,0 +1,18 @@
+{
+  "issuanceId": "BOND-2026-001-ISSUE-1",
+  "bondId": "BOND-2026-001",
+  "issuerEntityId": "hazbase-treasury",
+  "issuedPrincipal": 1000000,
+  "outstandingPrincipal": 0,
+  "redeemedPrincipal": 1000000,
+  "currencyAssetId": "bitcoin",
+  "controllerXonly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  "issuedAt": "2026-03-10T00:00:00Z",
+  "status": "REDEEMED",
+  "previousStateHash": "83a003a8b1146e839f55df4cb668eb90157fb2de4f612408fe45a82f4d22b435",
+  "lastTransition": {
+    "type": "REDEEM",
+    "amount": 1000000,
+    "at": "2027-03-10T00:00:00Z"
+  }
+}

@@ -18,9 +18,41 @@ export {
   verifyStateAgainstArtifact,
   verifyStateDescriptorAgainstArtifact,
 } from "./core/state";
-export { defineBond, verifyBond, loadBond } from "./domain/bond";
+export {
+  defineBond,
+  verifyBond,
+  loadBond,
+  redeemBond,
+  verifyBondTransition,
+  buildBondRedemption,
+  buildBondPayload,
+  buildBondSettlementDescriptor,
+  buildBondSettlementPayload,
+  buildBondTransitionPayload,
+  buildBondRolloverPlan,
+  buildBondMachineRolloverPlan,
+  buildBondMachineSettlementPlan,
+  compileBondTransition,
+  compileBondRedemptionMachine,
+  inspectBondMachineRollover,
+  inspectBondMachineSettlement,
+  inspectBondStateRollover,
+  executeBondStateRollover,
+  executeBondMachineRollover,
+  executeBondMachineSettlement,
+  verifyBondRedemptionMachineArtifact,
+  verifyBondSettlementDescriptor,
+} from "./domain/bond";
 export {
   validateBondDefinition,
   validateBondIssuanceState,
   validateBondCrossChecks,
+  validateBondStateTransition,
+  buildRedeemedBondIssuanceState,
+  summarizeBondIssuanceState,
 } from "./domain/bondValidation";
+export {
+  summarizeBondSettlementDescriptor,
+  validateBondSettlementDescriptor,
+  validateBondSettlementMatchesExpected,
+} from "./domain/bondSettlementValidation";

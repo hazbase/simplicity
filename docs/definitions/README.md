@@ -6,7 +6,11 @@ Files:
 - `bond-definition.json`: off-chain bond definition document
 - `bond-anchor.simf`: a custom Simplicity contract that is compiled with `DEFINITION_HASH` and `DEFINITION_ID` injected from the definition document
 - `bond-issuance-state.json`: off-chain issuance state document
+- `bond-issuance-state-partial-redemption.json`: sample next-state document after a partial redemption
+- `bond-issuance-state-redeemed.json`: sample fully redeemed state document
 - `bond-issuance-anchor.simf`: a custom Simplicity contract that commits both `DEFINITION_HASH` and `STATE_HASH`
+- `bond-redemption-transition.simf`: a custom Simplicity contract that commits `DEFINITION_HASH`, `PREVIOUS_STATE_HASH`, and `STATE_HASH`
+- `bond-redemption-state-machine.simf`: a custom Simplicity contract that also commits redeem amount, status progression, principal arithmetic inputs, the expected next state contract address, and a settlement descriptor hash
 
 Recommended flow:
 1. Load the JSON definition with `sdk.loadDefinition(...)`
@@ -19,6 +23,17 @@ Recommended flow:
    - `sdk.verifyDefinitionAgainstArtifact(...)`
    - `sdk.verifyStateAgainstArtifact(...)`
 6. Use `sdk.bonds.verifyBond(...)` or `sdk.bonds.loadBond(...)` for combined retrieval + invariant checking
+7. For a redemption step, build the next issuance state with `sdk.bonds.redeemBond(...)`
+8. Verify the transition with `sdk.bonds.verifyBondTransition(...)`
+9. Export a bridge-ready payload with `sdk.bonds.buildBondPayload(...)`
+10. Export a transition payload with `sdk.bonds.buildBondTransitionPayload(...)`
+11. Compile a transition contract with `sdk.bonds.compileBondTransition(...)`
+12. Compile a redemption state machine contract with `sdk.bonds.compileBondRedemptionMachine(...)`
+13. Verify the compiled redemption machine artifact with `sdk.bonds.verifyBondRedemptionMachineArtifact(...)`
+14. Build a settlement descriptor with `sdk.bonds.buildBondSettlementDescriptor(...)`
+15. Export a settlement payload with `sdk.bonds.buildBondSettlementPayload(...)`
+16. Build a runtime rollover plan with `sdk.bonds.buildBondRolloverPlan(...)`
+17. Build a runtime rollover plan that targets the arithmetic machine contract with `sdk.bonds.buildBondMachineRolloverPlan(...)`
 
 Trust model:
 - The JSON body remains off-chain
@@ -27,6 +42,8 @@ Trust model:
 - In `bond-issuance-anchor.simf`, the contract also executes `require_state_anchor()`, which uses `STATE_HASH` in contract logic
 - That means the definition hash materially changes the compiled program, CMR, and contract address
 - The issuance state hash also materially changes the compiled program, CMR, and contract address
+- The next redemption state can also be anchored the same way, so a partial/full redemption produces a new trusted state hash
+- A settlement descriptor can now bundle the intended next state contract, next amount, fee ceiling, and principal deltas into one canonical hash that the redemption machine also commits
 - Retrieval verifies both:
   - the JSON still matches the artifact hash anchor
   - the source file still contains the blessed on-chain helper pattern when re-checked by the SDK
@@ -38,4 +55,16 @@ Two modes exist:
 Important limitation:
 - artifact JSON alone is not treated as proof of on-chain enforcement
 - if the original `.simf` source file is unavailable at verification time, the SDK can still report the claimed anchor mode, but `onChainAnchorVerified` will be `false`
-- this milestone fixes the issuance record as a trusted document; it does not yet implement a full on-chain state machine for holder balances, coupon processing, or redemption lifecycle
+- this milestone now supports a minimal redemption state transition (`ISSUED -> PARTIALLY_REDEEMED -> REDEEMED`) at the SDK/document layer
+- the practical workflow is now:
+  - build the next state
+  - save it
+  - verify the transition
+  - export a transition payload that includes previous/next hashes, redeem amount, and status progression
+  - optionally compile a dedicated transition contract
+  - optionally compile a redemption state machine contract that also commits redeem amount, status progression, and principal arithmetic inputs
+  - verify that compiled machine artifact against the expected previous/next transition inputs
+  - plan the actual rollover of the current state UTXO into the next state's contract address
+  - or plan the rollover into the redemption machine contract address when you want the runtime spend to target the arithmetic machine artifact directly
+  - export a trusted payload for downstream systems
+- it still does not yet implement a full on-chain state machine for holder balances, coupon processing, or a complete redemption lifecycle contract

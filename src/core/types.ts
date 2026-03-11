@@ -168,6 +168,15 @@ export interface ArtifactStateMetadata {
   };
 }
 
+export type BondIssuanceStatus = "ISSUED" | "PARTIALLY_REDEEMED" | "REDEEMED";
+export type BondTransitionType = "ISSUE" | "REDEEM";
+
+export interface BondStateTransition {
+  type: BondTransitionType;
+  amount: number;
+  at: string;
+}
+
 export interface DeploymentInfo {
   contractAddress: string;
   internalKey: string;
@@ -374,7 +383,34 @@ export interface BondIssuanceState {
   currencyAssetId: string;
   controllerXonly: string;
   issuedAt: string;
-  status: "ISSUED" | "REDEEMED";
+  status: BondIssuanceStatus;
+  previousStateHash?: string | null;
+  lastTransition?: BondStateTransition;
+}
+
+export interface BondSettlementDescriptor {
+  settlementId: string;
+  bondId: string;
+  issuanceId: string;
+  definitionHash: string;
+  previousStateHash: string;
+  nextStateHash: string;
+  previousStatus: BondIssuanceStatus;
+  nextStatus: BondIssuanceStatus;
+  transitionKind: BondTransitionType;
+  redeemAmount: number;
+  transitionAt: string;
+  assetId: string;
+  nextContractAddress: string;
+  nextAmountSat: number;
+  maxFeeSat: number;
+  principal: {
+    issued: number;
+    previousOutstanding: number;
+    nextOutstanding: number;
+    previousRedeemed: number;
+    nextRedeemed: number;
+  };
 }
 
 export interface WaitForFundingInput {
