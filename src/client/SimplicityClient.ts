@@ -3,11 +3,14 @@ import { compileFromFile, compileFromPreset } from "../core/compiler";
 import { loadDefinitionInput, verifyDefinitionAgainstArtifact } from "../core/definition";
 import { loadStateInput, verifyStateAgainstArtifact } from "../core/state";
 import { ValidationError } from "../core/errors";
+import { describeOutputBindingSupport, evaluateOutputBindingSupport } from "../core/outputBinding";
 import { ElementsRpcClient } from "../core/rpc";
 import {
-  BondDefinition,
-  BondIssuanceState,
-  BondSettlementDescriptor,
+  BondEvidenceBundle,
+  OutputBindingSupportEvaluation,
+  OutputBindingSupportMatrix,
+  PolicyEvidenceBundle,
+  PolicyTemplateManifestValidationResult,
   DefinitionInput,
   DefinitionVerificationResult,
   CompileFromFileInput,
@@ -24,307 +27,80 @@ import { GaslessTransferInput, GaslessTransferResult, RelayerClientConfig } from
 import { CompiledContract } from "./ContractFactory";
 import { DeployedContract } from "./DeployedContract";
 import {
-  buildBondPayload,
-  buildBondRedemption,
-  buildBondTransitionPayload,
-  buildBondRolloverPlan,
-  buildBondMachineRolloverPlan,
-  buildBondMachineSettlementPlan,
-  buildBondSettlementDescriptor,
-  buildBondSettlementPayload,
-  compileBondRedemptionMachine,
-  compileBondTransition,
-  defineBond,
-  executeBondStateRollover,
-  executeBondMachineRollover,
-  executeBondMachineSettlement,
-  inspectBondStateRollover,
-  inspectBondMachineRollover,
-  inspectBondMachineSettlement,
-  loadBond,
-  redeemBond,
-  verifyBond,
-  verifyBondSettlementDescriptor,
-  verifyBondRedemptionMachineArtifact,
-  verifyBondTransition,
+  prepareRedemption,
+  prepareClosing,
+  exportFinalityPayload,
+  buildSettlement,
+  verifySettlement,
+  define,
+  executeClosing,
+  executeRedemption,
+  exportEvidence,
+  inspectClosing,
+  inspectRedemption,
+  issue,
+  load,
+  verify,
+  verifyClosing,
+  verifyRedemption,
 } from "../domain/bond";
+import {
+  buildPolicyOutputDescriptor,
+  describePolicyTemplate,
+  listPolicyTemplates,
+  loadPolicyTemplateManifest,
+  executeTransfer as executePolicyTransfer,
+  exportEvidence as exportPolicyEvidence,
+  inspectTransfer as inspectPolicyTransfer,
+  issue as issuePolicy,
+  prepareTransfer as preparePolicyTransfer,
+  validatePolicyTemplateManifest,
+  validatePolicyTemplateParams,
+  verifyState as verifyPolicyState,
+  verifyTransfer as verifyPolicyTransfer,
+} from "../domain/policies";
 
 export class SimplicityClient {
   public readonly rpc: ElementsRpcClient;
   public readonly payments: {
     gaslessTransfer: (input: GaslessTransferInput) => Promise<GaslessTransferResult>;
   };
+  public readonly outputBinding: {
+    describeSupport: () => OutputBindingSupportMatrix;
+    evaluateSupport: (input: Parameters<typeof evaluateOutputBindingSupport>[0]) => OutputBindingSupportEvaluation;
+  };
+  public readonly policies: {
+    listTemplates: () => ReturnType<typeof listPolicyTemplates>;
+    describeTemplate: (input: Parameters<typeof describePolicyTemplate>[0]) => ReturnType<typeof describePolicyTemplate>;
+    loadTemplateManifest: (input: Parameters<typeof loadPolicyTemplateManifest>[0]) => ReturnType<typeof loadPolicyTemplateManifest>;
+    validateTemplateManifest: (input: Parameters<typeof validatePolicyTemplateManifest>[0]) => PolicyTemplateManifestValidationResult;
+    validateTemplateParams: (input: Parameters<typeof validatePolicyTemplateParams>[0]) => ReturnType<typeof validatePolicyTemplateParams>;
+    buildOutputDescriptor: (input: Parameters<typeof buildPolicyOutputDescriptor>[1]) => ReturnType<typeof buildPolicyOutputDescriptor>;
+    issue: (input: Parameters<typeof issuePolicy>[1]) => ReturnType<typeof issuePolicy>;
+    prepareTransfer: (input: Parameters<typeof preparePolicyTransfer>[1]) => ReturnType<typeof preparePolicyTransfer>;
+    inspectTransfer: (input: Parameters<typeof inspectPolicyTransfer>[1]) => ReturnType<typeof inspectPolicyTransfer>;
+    executeTransfer: (input: Parameters<typeof executePolicyTransfer>[1]) => ReturnType<typeof executePolicyTransfer>;
+    verifyState: (input: Parameters<typeof verifyPolicyState>[1]) => ReturnType<typeof verifyPolicyState>;
+    verifyTransfer: (input: Parameters<typeof verifyPolicyTransfer>[1]) => ReturnType<typeof verifyPolicyTransfer>;
+    exportEvidence: (input: Parameters<typeof exportPolicyEvidence>[1]) => Promise<PolicyEvidenceBundle>;
+  };
   public readonly bonds: {
-    defineBond: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      issuancePath?: string;
-      issuanceValue?: BondIssuanceState;
-      simfPath?: string;
-      artifactPath?: string;
-    }) => Promise<CompiledContract>;
-    verifyBond: (input: {
-      artifactPath?: string;
-      artifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      issuancePath?: string;
-      issuanceValue?: BondIssuanceState;
-    }) => ReturnType<typeof verifyBond>;
-    redeemBond: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      amount: number;
-      redeemedAt: string;
-      simfPath?: string;
-      artifactPath?: string;
-    }) => ReturnType<typeof redeemBond>;
-    verifyBondTransition: (input: {
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-    }) => ReturnType<typeof verifyBondTransition>;
-    buildBondRedemption: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      amount: number;
-      redeemedAt: string;
-    }) => ReturnType<typeof buildBondRedemption>;
-    buildBondPayload: (input: {
-      artifactPath?: string;
-      artifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      issuancePath?: string;
-      issuanceValue?: BondIssuanceState;
-    }) => ReturnType<typeof buildBondPayload>;
-    buildBondTransitionPayload: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-    }) => ReturnType<typeof buildBondTransitionPayload>;
-    buildBondSettlementDescriptor: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextStateSimfPath?: string;
-      nextAmountSat: number;
-      maxFeeSat?: number;
-    }) => ReturnType<typeof buildBondSettlementDescriptor>;
-    verifyBondSettlementDescriptor: (input: {
-      descriptorPath?: string;
-      descriptorValue?: BondSettlementDescriptor;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextStateSimfPath?: string;
-      nextAmountSat?: number;
-      maxFeeSat?: number;
-    }) => ReturnType<typeof verifyBondSettlementDescriptor>;
-    buildBondSettlementPayload: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextStateSimfPath?: string;
-      nextAmountSat: number;
-      maxFeeSat?: number;
-    }) => ReturnType<typeof buildBondSettlementPayload>;
-    buildBondRolloverPlan: (input: {
-      currentArtifactPath?: string;
-      currentArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextSimfPath?: string;
-      nextArtifactPath?: string;
-    }) => ReturnType<typeof buildBondRolloverPlan>;
-    buildBondMachineRolloverPlan: (input: {
-      currentArtifactPath?: string;
-      currentArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextStateSimfPath?: string;
-      machineSimfPath?: string;
-      machineArtifactPath?: string;
-    }) => ReturnType<typeof buildBondMachineRolloverPlan>;
-    buildBondMachineSettlementPlan: (input: {
-      currentMachineArtifactPath?: string;
-      currentMachineArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextSimfPath?: string;
-      nextArtifactPath?: string;
-    }) => ReturnType<typeof buildBondMachineSettlementPlan>;
-    compileBondTransition: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      simfPath?: string;
-      artifactPath?: string;
-    }) => ReturnType<typeof compileBondTransition>;
-    compileBondRedemptionMachine: (input: {
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextStateSimfPath?: string;
-      nextAmountSat?: number;
-      maxFeeSat?: number;
-      simfPath?: string;
-      artifactPath?: string;
-    }) => ReturnType<typeof compileBondRedemptionMachine>;
-    verifyBondRedemptionMachineArtifact: (input: {
-      artifactPath?: string;
-      artifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextStateSimfPath?: string;
-      nextAmountSat?: number;
-      maxFeeSat?: number;
-    }) => ReturnType<typeof verifyBondRedemptionMachineArtifact>;
-    inspectBondStateRollover: (input: {
-      currentArtifactPath?: string;
-      currentArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextSimfPath?: string;
-      nextArtifactPath?: string;
-      wallet: string;
-      signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
-      feeSat?: number;
-      utxoPolicy?: "smallest_over" | "largest" | "newest";
-    }) => ReturnType<typeof inspectBondStateRollover>;
-    inspectBondMachineRollover: (input: {
-      currentArtifactPath?: string;
-      currentArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      machineSimfPath?: string;
-      machineArtifactPath?: string;
-      wallet: string;
-      signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
-      feeSat?: number;
-      utxoPolicy?: "smallest_over" | "largest" | "newest";
-    }) => ReturnType<typeof inspectBondMachineRollover>;
-    inspectBondMachineSettlement: (input: {
-      currentMachineArtifactPath?: string;
-      currentMachineArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextSimfPath?: string;
-      nextArtifactPath?: string;
-      wallet: string;
-      signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
-      feeSat?: number;
-      utxoPolicy?: "smallest_over" | "largest" | "newest";
-    }) => ReturnType<typeof inspectBondMachineSettlement>;
-    executeBondStateRollover: (input: {
-      currentArtifactPath?: string;
-      currentArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextSimfPath?: string;
-      nextArtifactPath?: string;
-      wallet: string;
-      signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
-      feeSat?: number;
-      utxoPolicy?: "smallest_over" | "largest" | "newest";
-      broadcast?: boolean;
-    }) => ReturnType<typeof executeBondStateRollover>;
-    executeBondMachineRollover: (input: {
-      currentArtifactPath?: string;
-      currentArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      machineSimfPath?: string;
-      machineArtifactPath?: string;
-      wallet: string;
-      signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
-      feeSat?: number;
-      utxoPolicy?: "smallest_over" | "largest" | "newest";
-      broadcast?: boolean;
-    }) => ReturnType<typeof executeBondMachineRollover>;
-    executeBondMachineSettlement: (input: {
-      currentMachineArtifactPath?: string;
-      currentMachineArtifact?: SimplicityArtifact;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      previousIssuancePath?: string;
-      previousIssuanceValue?: BondIssuanceState;
-      nextIssuancePath?: string;
-      nextIssuanceValue?: BondIssuanceState;
-      nextSimfPath?: string;
-      nextArtifactPath?: string;
-      wallet: string;
-      signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
-      feeSat?: number;
-      utxoPolicy?: "smallest_over" | "largest" | "newest";
-      broadcast?: boolean;
-    }) => ReturnType<typeof executeBondMachineSettlement>;
-    loadBond: (input: {
-      artifactPath: string;
-      definitionPath?: string;
-      definitionValue?: BondDefinition;
-      issuancePath?: string;
-      issuanceValue?: BondIssuanceState;
-    }) => ReturnType<typeof loadBond>;
+    define: (input: Parameters<typeof define>[1]) => ReturnType<typeof define>;
+    verify: (input: Parameters<typeof verify>[1]) => ReturnType<typeof verify>;
+    load: (input: Parameters<typeof load>[1]) => ReturnType<typeof load>;
+    issue: (input: Parameters<typeof issue>[1]) => ReturnType<typeof issue>;
+    prepareRedemption: (input: Parameters<typeof prepareRedemption>[1]) => ReturnType<typeof prepareRedemption>;
+    inspectRedemption: (input: Parameters<typeof inspectRedemption>[1]) => ReturnType<typeof inspectRedemption>;
+    executeRedemption: (input: Parameters<typeof executeRedemption>[1]) => ReturnType<typeof executeRedemption>;
+    verifyRedemption: (input: Parameters<typeof verifyRedemption>[1]) => ReturnType<typeof verifyRedemption>;
+    buildSettlement: (input: Parameters<typeof buildSettlement>[1]) => ReturnType<typeof buildSettlement>;
+    verifySettlement: (input: Parameters<typeof verifySettlement>[1]) => ReturnType<typeof verifySettlement>;
+    prepareClosing: (input: Parameters<typeof prepareClosing>[1]) => ReturnType<typeof prepareClosing>;
+    inspectClosing: (input: Parameters<typeof inspectClosing>[1]) => ReturnType<typeof inspectClosing>;
+    executeClosing: (input: Parameters<typeof executeClosing>[1]) => ReturnType<typeof executeClosing>;
+    verifyClosing: (input: Parameters<typeof verifyClosing>[1]) => ReturnType<typeof verifyClosing>;
+    exportEvidence: (input: Parameters<typeof exportEvidence>[1]) => Promise<BondEvidenceBundle>;
+    exportFinalityPayload: (input: Parameters<typeof exportFinalityPayload>[1]) => ReturnType<typeof exportFinalityPayload>;
   };
 
   constructor(public readonly config: SimplicityClientConfig) {
@@ -332,30 +108,42 @@ export class SimplicityClient {
     this.payments = {
       gaslessTransfer: async (input) => this.gaslessTransfer(input),
     };
+    this.outputBinding = {
+      describeSupport: () => describeOutputBindingSupport(),
+      evaluateSupport: (input) => evaluateOutputBindingSupport(input),
+    };
+    this.policies = {
+      listTemplates: () => listPolicyTemplates(),
+      describeTemplate: (input) => describePolicyTemplate(input),
+      loadTemplateManifest: async (input) => loadPolicyTemplateManifest(input),
+      validateTemplateManifest: (input) => validatePolicyTemplateManifest(input),
+      validateTemplateParams: (input) => validatePolicyTemplateParams(input),
+      buildOutputDescriptor: async (input) => buildPolicyOutputDescriptor(this, input),
+      issue: async (input) => issuePolicy(this, input),
+      prepareTransfer: async (input) => preparePolicyTransfer(this, input),
+      inspectTransfer: async (input) => inspectPolicyTransfer(this, input),
+      executeTransfer: async (input) => executePolicyTransfer(this, input),
+      verifyState: async (input) => verifyPolicyState(this, input),
+      verifyTransfer: async (input) => verifyPolicyTransfer(this, input),
+      exportEvidence: async (input) => exportPolicyEvidence(this, input),
+    };
     this.bonds = {
-      defineBond: async (input) => defineBond(this, input),
-      verifyBond: async (input) => verifyBond(this, input),
-      redeemBond: async (input) => redeemBond(this, input),
-      verifyBondTransition: async (input) => verifyBondTransition(this, input),
-      buildBondRedemption: async (input) => buildBondRedemption(this, input),
-      buildBondPayload: async (input) => buildBondPayload(this, input),
-      buildBondTransitionPayload: async (input) => buildBondTransitionPayload(this, input),
-      buildBondSettlementDescriptor: async (input) => buildBondSettlementDescriptor(this, input),
-      verifyBondSettlementDescriptor: async (input) => verifyBondSettlementDescriptor(this, input),
-      buildBondSettlementPayload: async (input) => buildBondSettlementPayload(this, input),
-      buildBondRolloverPlan: async (input) => buildBondRolloverPlan(this, input),
-      buildBondMachineRolloverPlan: async (input) => buildBondMachineRolloverPlan(this, input),
-      buildBondMachineSettlementPlan: async (input) => buildBondMachineSettlementPlan(this, input),
-      compileBondTransition: async (input) => compileBondTransition(this, input),
-      compileBondRedemptionMachine: async (input) => compileBondRedemptionMachine(this, input),
-      verifyBondRedemptionMachineArtifact: async (input) => verifyBondRedemptionMachineArtifact(this, input),
-      inspectBondStateRollover: async (input) => inspectBondStateRollover(this, input),
-      inspectBondMachineRollover: async (input) => inspectBondMachineRollover(this, input),
-      inspectBondMachineSettlement: async (input) => inspectBondMachineSettlement(this, input),
-      executeBondStateRollover: async (input) => executeBondStateRollover(this, input),
-      executeBondMachineRollover: async (input) => executeBondMachineRollover(this, input),
-      executeBondMachineSettlement: async (input) => executeBondMachineSettlement(this, input),
-      loadBond: async (input) => loadBond(this, input),
+      define: async (input) => define(this, input),
+      verify: async (input) => verify(this, input),
+      load: async (input) => load(this, input),
+      issue: async (input) => issue(this, input),
+      prepareRedemption: async (input) => prepareRedemption(this, input),
+      inspectRedemption: async (input) => inspectRedemption(this, input),
+      executeRedemption: async (input) => executeRedemption(this, input),
+      verifyRedemption: async (input) => verifyRedemption(this, input),
+      buildSettlement: async (input) => buildSettlement(this, input),
+      verifySettlement: async (input) => verifySettlement(this, input),
+      prepareClosing: async (input) => prepareClosing(this, input),
+      inspectClosing: async (input) => inspectClosing(this, input),
+      executeClosing: async (input) => executeClosing(this, input),
+      verifyClosing: async (input) => verifyClosing(this, input),
+      exportEvidence: async (input) => exportEvidence(this, input),
+      exportFinalityPayload: async (input) => exportFinalityPayload(this, input),
     };
   }
 

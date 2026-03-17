@@ -1,9 +1,8 @@
-import { createSimplicityClient } from "@hazbase/simplicity";
-import { loadSharedConfig } from "./shared";
+import { createExampleClient } from "./shared";
 
 async function main() {
-  const sdk = createSimplicityClient(loadSharedConfig());
-  const result = await sdk.bonds.verifyBondSettlementDescriptor({
+  const sdk = createExampleClient();
+  const result = await sdk.bonds.verifySettlement({
     descriptorPath: process.env.BOND_SETTLEMENT_DESCRIPTOR_JSON,
     definitionPath: process.env.BOND_DEFINITION_JSON ?? "./docs/definitions/bond-definition.json",
     previousIssuancePath:

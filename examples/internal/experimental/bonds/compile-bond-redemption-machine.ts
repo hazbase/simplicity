@@ -1,7 +1,8 @@
-import { createSdkFromEnv, resolveExamplePath } from "./shared";
+import { compileBondRedemptionMachine } from "../../../../src/internal/experimental/bond";
+import { createExampleClient, resolveExamplePath } from "../../../shared";
 
 async function main() {
-  const sdk = createSdkFromEnv();
+  const sdk = createExampleClient();
   const definitionPath = resolveExamplePath("docs/definitions/bond-definition.json", "BOND_DEFINITION_JSON");
   const previousIssuancePath = resolveExamplePath(
     "docs/definitions/bond-issuance-state.json",
@@ -12,12 +13,12 @@ async function main() {
     "BOND_NEXT_ISSUANCE_JSON"
   );
   const simfPath = resolveExamplePath(
-    "docs/definitions/bond-redemption-transition.simf",
-    "BOND_TRANSITION_SIMF"
+    "docs/definitions/bond-redemption-state-machine.simf",
+    "BOND_REDEMPTION_MACHINE_SIMF"
   );
-  const artifactPath = process.env.BOND_TRANSITION_ARTIFACT || "./bond-transition.artifact.json";
+  const artifactPath = process.env.BOND_REDEMPTION_MACHINE_ARTIFACT || "./bond-redemption-machine.artifact.json";
 
-  const result = await sdk.bonds.compileBondTransition({
+  const result = await compileBondRedemptionMachine(sdk, {
     definitionPath,
     previousIssuancePath,
     nextIssuancePath,

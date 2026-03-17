@@ -8,7 +8,7 @@ async function main() {
   const simfPath = resolveExamplePath("docs/definitions/bond-issuance-anchor.simf", "BOND_ISSUANCE_SIMF");
   const artifactPath = process.env.BOND_ARTIFACT || path.resolve(process.cwd(), "bond-issuance.artifact.json");
 
-  const compiled = await sdk.bonds.defineBond({
+  const compiled = await sdk.bonds.define({
     definitionPath,
     issuancePath,
     simfPath,

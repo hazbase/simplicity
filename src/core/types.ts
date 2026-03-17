@@ -168,8 +168,59 @@ export interface ArtifactStateMetadata {
   };
 }
 
-export type BondIssuanceStatus = "ISSUED" | "PARTIALLY_REDEEMED" | "REDEEMED";
+export type BondIssuanceStatus = "ISSUED" | "PARTIALLY_REDEEMED" | "REDEEMED" | "CLOSED";
 export type BondTransitionType = "ISSUE" | "REDEEM";
+export type BondOutputBindingMode = "none" | "script-bound" | "descriptor-bound";
+export type PropagationMode = "required" | "optional" | "none";
+export type OutputBindingReasonCode =
+  | "OK_EXPLICIT"
+  | "OK_RAW_OUTPUT"
+  | "OK_MANUAL_HASH"
+  | "OK_SCRIPT_BOUND"
+  | "OK_NONE"
+  | "FALLBACK_UNSUPPORTED_ASSET"
+  | "FALLBACK_UNSUPPORTED_OUTPUT_FORM"
+  | "FALLBACK_MISSING_HASH_INPUT"
+  | "FALLBACK_INCOMPLETE_RAW_OUTPUT"
+  | "FALLBACK_INVALID_RAW_OUTPUT";
+export type OutputBindingSupportedForm = "explicit-v1" | "raw-output-v1" | "unsupported";
+export type OutputAssetForm = "explicit" | "confidential";
+export type OutputAmountForm = "explicit" | "confidential";
+export type OutputNonceForm = "null" | "confidential";
+export type OutputRangeProofForm = "empty" | "non-empty";
+
+export interface OutputForm {
+  assetForm: OutputAssetForm;
+  amountForm: OutputAmountForm;
+  nonceForm: OutputNonceForm;
+  rangeProofForm: OutputRangeProofForm;
+}
+
+export interface OutputRawFields {
+  assetBytesHex: string;
+  amountBytesHex: string;
+  nonceBytesHex: string;
+  scriptPubKeyHex?: string;
+  scriptPubKeyHashHex?: string;
+  rangeProofHex?: string;
+  rangeProofHashHex?: string;
+}
+
+export interface OutputBindingInputs {
+  assetId: string;
+  assetForm: OutputAssetForm;
+  amountForm: OutputAmountForm;
+  nonceForm: OutputNonceForm;
+  rangeProofForm: OutputRangeProofForm;
+  nextAmountSat: number;
+  nextOutputIndex: number;
+  feeIndex: number;
+  maxFeeSat: number;
+  rawOutputComponents?: {
+    scriptPubKey: "raw-bytes" | "hash";
+    rangeProof: "raw-bytes" | "hash";
+  };
+}
 
 export interface BondStateTransition {
   type: BondTransitionType;
@@ -386,6 +437,9 @@ export interface BondIssuanceState {
   status: BondIssuanceStatus;
   previousStateHash?: string | null;
   lastTransition?: BondStateTransition;
+  closedAt?: string;
+  closingReason?: "REDEEMED" | "CANCELLED" | "MATURED_OUT";
+  finalSettlementDescriptorHash?: string;
 }
 
 export interface BondSettlementDescriptor {
@@ -404,6 +458,8 @@ export interface BondSettlementDescriptor {
   nextContractAddress: string;
   nextAmountSat: number;
   maxFeeSat: number;
+  expectedOutputDescriptorHash?: string;
+  outputBindingMode?: BondOutputBindingMode;
   principal: {
     issued: number;
     previousOutstanding: number;
@@ -411,6 +467,328 @@ export interface BondSettlementDescriptor {
     previousRedeemed: number;
     nextRedeemed: number;
   };
+}
+
+export interface BondExpectedOutputDescriptor {
+  nextContractAddress: string;
+  nextOutputHash?: string;
+  nextOutputScriptHash?: string;
+  nextAmountSat: number;
+  assetId: string;
+  requestedOutputBindingMode?: BondOutputBindingMode;
+  outputForm?: OutputForm;
+  rawOutput?: Partial<OutputRawFields>;
+  feeIndex: number;
+  nextOutputIndex: number;
+  maxFeeSat: number;
+  outputBindingMode?: BondOutputBindingMode;
+}
+
+export interface BondClosingDescriptor {
+  closingId: string;
+  bondId: string;
+  issuanceId: string;
+  previousStateHash: string;
+  closedStateHash: string;
+  finalStatus: "CLOSED";
+  closingReason: "REDEEMED" | "CANCELLED" | "MATURED_OUT";
+  closedAt: string;
+  definitionHash: string;
+  stateHash: string;
+  finalSettlementDescriptorHash: string;
+}
+
+export interface BondVerificationReport {
+  artifactTrust: {
+    definition: DefinitionVerificationResult["trust"];
+    state: StateVerificationResult["trust"];
+  };
+  stateTrust: StateVerificationResult["trust"];
+  settlementTrust?: {
+    descriptorHashMatch: boolean;
+    outputBindingMode: BondOutputBindingMode;
+  };
+  outputBindingTrust?: {
+    mode: BondOutputBindingMode;
+    requestedMode?: BondOutputBindingMode;
+    supportedForm?: OutputBindingSupportedForm;
+    nextContractAddressCommitted: boolean;
+    expectedOutputDescriptorCommitted: boolean;
+    settlementDescriptorCommitted?: boolean;
+    outputCountRuntimeBound: boolean;
+    feeIndexRuntimeBound: boolean;
+    nextOutputHashRuntimeBound?: boolean;
+    nextOutputScriptRuntimeBound: boolean;
+    amountRuntimeBound: boolean;
+    reasonCode?: OutputBindingReasonCode;
+    autoDerived?: boolean;
+    fallbackReason?: string;
+    bindingInputs?: OutputBindingInputs;
+  };
+  arithmeticTrust?: {
+    principalArithmeticCommitted: boolean;
+    principalArithmeticValid: boolean;
+    statusProgressionCommitted: boolean;
+    statusProgressionValid: boolean;
+  };
+  closingTrust?: {
+    finalStatusValid: boolean;
+    finalSettlementDescriptorHashMatch: boolean;
+  };
+}
+
+export interface BondEvidenceBundle {
+  artifact: SimplicityArtifact;
+  definition: {
+    canonicalJson: string;
+    hash: string;
+  };
+  issuance: {
+    canonicalJson: string;
+    hash: string;
+  };
+  transition?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  settlement?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  closing?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  trust: BondVerificationReport;
+  renderedSourceHash?: string;
+  sourceVerificationMode: "source-reloaded" | "artifact-only";
+  compiled: {
+    program: string;
+    cmr: string;
+    contractAddress: string;
+  };
+}
+
+export interface PolicyReceiver {
+  mode: "plain" | "policy";
+  address?: string;
+  recipientXonly?: string;
+  defaultPolicyTemplateId?: string;
+  defaultParams?: Record<string, string | number | boolean>;
+}
+
+export interface PolicyTemplateDocument {
+  policyTemplateId: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type PolicyTemplateManifestVersion = "policy-template-manifest/v1";
+export type PolicyVerificationReportSchemaVersion = "policy-verification-report/v1";
+export type PolicyEvidenceBundleSchemaVersion = "policy-evidence-bundle/v1";
+export type PolicyOutputBindingReasonCode = OutputBindingReasonCode;
+export type PolicyOutputBindingSupportedForm = OutputBindingSupportedForm;
+export type PolicyOutputAssetForm = OutputAssetForm;
+export type PolicyOutputAmountForm = OutputAmountForm;
+export type PolicyOutputNonceForm = OutputNonceForm;
+export type PolicyOutputRangeProofForm = OutputRangeProofForm;
+export type PolicyTemplateManifestValidationReasonCode =
+  | "OK"
+  | "MANIFEST_VERSION_UNSUPPORTED"
+  | "MANIFEST_FIELD_REQUIRED"
+  | "MANIFEST_FIELD_INVALID"
+  | "MANIFEST_PARAMETER_SCHEMA_INVALID"
+  | "MANIFEST_BINDING_MODE_INVALID"
+  | "MANIFEST_PROPAGATION_MODE_INVALID";
+
+export interface PolicyTemplateManifest {
+  templateId: string;
+  manifestVersion: PolicyTemplateManifestVersion;
+  title: string;
+  description: string;
+  stateSimfPath: string;
+  directStateSimfPath?: string;
+  parameterSchema: Record<string, "string" | "number" | "boolean">;
+  supportedBindingModes: BondOutputBindingMode[];
+  supportsPlainExit: boolean;
+  defaultPropagationMode: PropagationMode;
+}
+
+export interface PolicyTemplateInput {
+  templateId?: string;
+  manifestPath?: string;
+  manifestValue?: PolicyTemplateManifest;
+  jsonPath?: string;
+  value?: unknown;
+  stateSimfPath?: string;
+  directStateSimfPath?: string;
+  transferMachineSimfPath?: string;
+}
+
+export interface PolicyState {
+  policyTemplateId: string;
+  policyHash: string;
+  recipient: string;
+  amountSat: number;
+  assetId: string;
+  params: Record<string, string | number | boolean>;
+  propagationMode: PropagationMode;
+  previousStateHash?: string | null;
+  hop: number;
+  status: "LOCKED" | "SPENT";
+}
+
+export interface PolicyOutputDescriptor {
+  nextContractAddress: string;
+  nextOutputHash?: string;
+  nextOutputScriptHash?: string;
+  nextAmountSat: number;
+  assetId: string;
+  requestedOutputBindingMode?: BondOutputBindingMode;
+  outputForm?: OutputForm;
+  rawOutput?: Partial<OutputRawFields>;
+  feeIndex: number;
+  nextOutputIndex: number;
+  maxFeeSat: number;
+  outputBindingMode: BondOutputBindingMode;
+}
+
+export interface PolicyTransferDescriptor {
+  policyTemplateId: string;
+  previousPolicyHash: string;
+  nextPolicyHash?: string | null;
+  previousStateHash: string;
+  nextStateHash?: string | null;
+  propagationMode: PropagationMode;
+  plainExitAddress?: string | null;
+  outputDescriptor?: PolicyOutputDescriptor;
+}
+
+export interface PolicyVerificationReport {
+  schemaVersion: PolicyVerificationReportSchemaVersion;
+  templateTrust?: DefinitionVerificationResult["trust"];
+  stateTrust: StateVerificationResult["trust"];
+  propagationMode: PropagationMode;
+  nextPolicyRequired: boolean;
+  nextPolicyPresent: boolean;
+  plainExitAllowed: boolean;
+  outputBinding?: {
+    mode: BondOutputBindingMode;
+    supportedForm: PolicyOutputBindingSupportedForm;
+    committed: boolean;
+    runtimeBound: boolean;
+    sdkVerified: boolean;
+    amountRuntimeBound: boolean;
+    nextOutputHashRuntimeBound: boolean;
+    nextOutputScriptRuntimeBound: boolean;
+    reasonCode: PolicyOutputBindingReasonCode;
+    nextOutputHash?: string;
+    autoDerived?: boolean;
+    fallbackReason?: string;
+    bindingInputs?: OutputBindingInputs;
+  };
+  enforcement: "sdk-path" | "conditional-hop" | "direct-hop";
+}
+
+export interface PolicyEvidenceBundle {
+  schemaVersion: PolicyEvidenceBundleSchemaVersion;
+  artifact: SimplicityArtifact;
+  template: {
+    canonicalJson: string;
+    hash: string;
+  };
+  state: {
+    canonicalJson: string;
+    hash: string;
+  };
+  transfer?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  report: PolicyVerificationReport;
+  renderedSourceHash?: string;
+  sourceVerificationMode: "source-reloaded" | "artifact-only";
+  compiled: {
+    program: string;
+    cmr: string;
+    contractAddress: string;
+  };
+}
+
+export interface OutputBindingSupportMatrix {
+  supportedForms: Array<{
+    form: OutputBindingSupportedForm;
+    description: string;
+    autoDerived: boolean;
+  }>;
+  unsupportedOutputFeatures: Array<{
+    feature: string;
+    description: string;
+    fallbackReasonCode: Extract<
+      OutputBindingReasonCode,
+      "FALLBACK_UNSUPPORTED_ASSET" | "FALLBACK_UNSUPPORTED_OUTPUT_FORM"
+    >;
+    manualHashSupported: boolean;
+  }>;
+  outputBindingModes: Record<
+    BondOutputBindingMode,
+    {
+      description: string;
+      runtimeBinding: "none" | "script-hash" | "output-hash";
+      fallbackBehavior: string;
+    }
+  >;
+  autoDeriveConditions: {
+    assetInput: string[];
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+    rawOutputFields?: string[];
+    rawOutputFieldAlternatives?: Record<string, string[]>;
+    outputHashExclusions?: string[];
+  };
+  manualHashPath: {
+    supported: boolean;
+    description: string;
+  };
+  fallbackBehavior: {
+    defaultMode: BondOutputBindingMode;
+    reasonCodes: OutputBindingReasonCode[];
+  };
+  publicValidationMatrix: {
+    local: string[];
+    testnet: string[];
+  };
+  nonGoals: string[];
+}
+
+export type PolicyBindingSupportMatrix = OutputBindingSupportMatrix;
+
+export interface OutputBindingSupportEvaluation {
+  requestedBindingMode: BondOutputBindingMode;
+  resolvedBindingMode: BondOutputBindingMode;
+  supportedForm: OutputBindingSupportedForm;
+  reasonCode: OutputBindingReasonCode;
+  autoDerived: boolean;
+  fallbackReason?: string;
+  assetId: string;
+  outputForm: OutputForm;
+  unsupportedFeatures: string[];
+  explicitAssetInputSupported: boolean;
+  manualHashSupplied: boolean;
+  nextOutputScriptAvailable: boolean;
+  rawOutputProvided?: boolean;
+  rawOutputComponents?: {
+    scriptPubKey: "raw-bytes" | "hash";
+    rangeProof: "raw-bytes" | "hash";
+  };
+}
+
+export interface PolicyTemplateManifestValidationResult {
+  ok: boolean;
+  reasonCode: PolicyTemplateManifestValidationReasonCode;
+  reason?: string;
+  manifest?: PolicyTemplateManifest;
 }
 
 export interface WaitForFundingInput {

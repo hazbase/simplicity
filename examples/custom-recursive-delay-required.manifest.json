@@ -1,0 +1,17 @@
+{
+  "templateId": "custom-recursive-delay-required",
+  "manifestVersion": "policy-template-manifest/v1",
+  "title": "Custom Recursive Delay (Required)",
+  "description": "Example external manifest for a required 1tx recursive delay policy.",
+  "stateSimfPath": "./docs/definitions/recursive-delay-required.simf",
+  "directStateSimfPath": "./docs/definitions/recursive-delay-required.simf",
+  "parameterSchema": {
+    "lockDistanceBlocks": "number"
+  },
+  "supportedBindingModes": [
+    "script-bound",
+    "descriptor-bound"
+  ],
+  "supportsPlainExit": false,
+  "defaultPropagationMode": "required"
+}

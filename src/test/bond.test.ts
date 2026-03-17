@@ -373,14 +373,14 @@ test("bond verify keeps on-chain anchor verified when artifact is saved outside 
   const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
   const issuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
 
-  await sdk.bonds.defineBond({
+  await sdk.bonds.define({
     definitionPath,
     issuancePath,
     simfPath,
     artifactPath,
   });
 
-  const verified = await sdk.bonds.verifyBond({
+  const verified = await sdk.bonds.verify({
     artifactPath,
     definitionPath,
     issuancePath,
@@ -390,6 +390,21 @@ test("bond verify keeps on-chain anchor verified when artifact is saved outside 
   assert.equal(verified.definition.trust.onChainAnchorVerified, true);
   assert.equal(verified.issuance.ok, true);
   assert.equal(verified.issuance.trust.onChainAnchorVerified, true);
+});
+
+test("public bond client surface exposes business methods only", () => {
+  const sdk = createSimplicityClient(TEST_CONFIG) as unknown as {
+    bonds: Record<string, unknown>;
+  };
+
+  assert.equal(typeof sdk.bonds.define, "function");
+  assert.equal(typeof sdk.bonds.prepareRedemption, "function");
+  assert.equal(typeof sdk.bonds.buildSettlement, "function");
+  assert.equal(typeof sdk.bonds.prepareClosing, "function");
+  assert.equal("compileBondRedemptionMachine" in sdk.bonds, false);
+  assert.equal("compileBondTransition" in sdk.bonds, false);
+  assert.equal("buildBondRolloverPlan" in sdk.bonds, false);
+  assert.equal("buildExpectedOutputDescriptor" in sdk.bonds, false);
 });
 
 test("buildBondPayload returns bridge-ready trust summary", async (t) => {
@@ -408,7 +423,7 @@ test("buildBondPayload returns bridge-ready trust summary", async (t) => {
   const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
   const issuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
 
-  await sdk.bonds.defineBond({
+  await sdk.bonds.define({
     definitionPath,
     issuancePath,
     simfPath,
@@ -659,7 +674,7 @@ test("buildBondRolloverPlan compiles next state artifact and targets next contra
   const nextIssuancePath =
     "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
 
-  await sdk.bonds.defineBond({
+  await sdk.bonds.define({
     definitionPath,
     issuancePath: previousIssuancePath,
     simfPath,
@@ -703,7 +718,7 @@ test("buildBondMachineRolloverPlan compiles redemption machine artifact and targ
   const nextIssuancePath =
     "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
 
-  await sdk.bonds.defineBond({
+  await sdk.bonds.define({
     definitionPath,
     issuancePath: previousIssuancePath,
     simfPath: currentSimfPath,

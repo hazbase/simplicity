@@ -34,6 +34,7 @@ import {
   WitnessConfig,
 } from "./types";
 import { RelayerClient } from "../gasless/RelayerClient";
+import { ElementsRpcClient } from "./rpc";
 
 const DEFAULT_FEE_SAT = 100;
 const DEFAULT_SEQUENCE = 4294967293;
@@ -151,13 +152,24 @@ function chooseUtxo(utxos: ContractUtxo[], minSat: number, policy: UtxoPolicy): 
   return unconfirmed[0] ?? null;
 }
 
-async function findContractUtxosInMempool(elementsCliPath: string, contractAddress: string): Promise<ContractUtxo[]> {
-  const mempool = await runCommand(elementsCliPath, ["getrawmempool"]);
-  const txids = JSON.parse(mempool.stdout) as string[];
+async function callRpc<T>(
+  config: SimplicityClientConfig,
+  method: string,
+  params: unknown[] = [],
+  wallet?: string
+): Promise<T> {
+  const client = new ElementsRpcClient(config.rpc);
+  return client.call<T>(method, params, wallet);
+}
+
+async function findContractUtxosInMempool(
+  config: SimplicityClientConfig,
+  contractAddress: string
+): Promise<ContractUtxo[]> {
+  const txids = await callRpc<string[]>(config, "getrawmempool", []);
   const matches: ContractUtxo[] = [];
   for (const txid of txids) {
-    const tx = await runCommand(elementsCliPath, ["getrawtransaction", txid, "true"]);
-    const parsed = JSON.parse(tx.stdout) as RawTransactionVerboseResult;
+    const parsed = await callRpc<RawTransactionVerboseResult>(config, "getrawtransaction", [txid, true]);
     for (const output of parsed.vout ?? []) {
       if (output.scriptPubKey?.address !== contractAddress) continue;
       matches.push({
@@ -173,10 +185,11 @@ async function findContractUtxosInMempool(elementsCliPath: string, contractAddre
   return matches;
 }
 
-async function scanUtxosByAddress(elementsCliPath: string, contractAddress: string): Promise<ContractUtxo[]> {
-  const pattern = `["addr(${contractAddress})"]`;
-  const result = await runCommand(elementsCliPath, ["scantxoutset", "start", pattern]);
-  const parsed = JSON.parse(result.stdout) as {
+async function scanUtxosByAddress(
+  config: SimplicityClientConfig,
+  contractAddress: string
+): Promise<ContractUtxo[]> {
+  const parsed = await callRpc<{
     success?: boolean;
     unspents?: Array<{
       txid: string;
@@ -186,7 +199,7 @@ async function scanUtxosByAddress(elementsCliPath: string, contractAddress: stri
       amount: string;
       height?: number;
     }>;
-  };
+  }>(config, "scantxoutset", ["start", [`addr(${contractAddress})`]]);
   if (!parsed.success || !Array.isArray(parsed.unspents)) {
     throw new ExecutionError("scantxoutset failed", parsed);
   }
@@ -199,22 +212,29 @@ async function scanUtxosByAddress(elementsCliPath: string, contractAddress: stri
     height: utxo.height,
     confirmed: true,
   }));
-  const mempool = confirmed.length === 0 ? await findContractUtxosInMempool(elementsCliPath, contractAddress) : [];
+  const mempool = confirmed.length === 0 ? await findContractUtxosInMempool(config, contractAddress) : [];
   return [...confirmed, ...mempool];
 }
 
-async function decodePsbt(elementsCliPath: string, psetBase64: string, wallet: string): Promise<Record<string, any>> {
-  const result = await runCommand(elementsCliPath, [`-rpcwallet=${wallet}`, "decodepsbt", psetBase64]);
-  return JSON.parse(result.stdout) as Record<string, any>;
+async function decodePsbt(
+  config: SimplicityClientConfig,
+  psetBase64: string,
+  wallet: string
+): Promise<Record<string, any>> {
+  return callRpc<Record<string, any>>(config, "decodepsbt", [psetBase64], wallet);
 }
 
 async function getAddressInfo(
-  elementsCliPath: string,
+  config: SimplicityClientConfig,
   wallet: string,
   address: string
 ): Promise<{ scriptPubKey: string; unconfidential?: string }> {
-  const result = await runCommand(elementsCliPath, [`-rpcwallet=${wallet}`, "getaddressinfo", address]);
-  const parsed = JSON.parse(result.stdout) as { scriptPubKey?: string; unconfidential?: string };
+  const parsed = await callRpc<{ scriptPubKey?: string; unconfidential?: string }>(
+    config,
+    "getaddressinfo",
+    [address],
+    wallet
+  );
   if (!parsed.scriptPubKey) {
     throw new ExecutionError(`Could not get scriptPubKey from address: ${address}`);
   }
@@ -222,12 +242,11 @@ async function getAddressInfo(
 }
 
 async function allocateWalletAddress(
-  elementsCliPath: string,
+  config: SimplicityClientConfig,
   wallet: string
 ): Promise<{ address: string; scriptPubKey: string }> {
-  const result = await runCommand(elementsCliPath, [`-rpcwallet=${wallet}`, "getnewaddress"]);
-  const address = result.stdout.trim();
-  const info = await getAddressInfo(elementsCliPath, wallet, address);
+  const address = await callRpc<string>(config, "getnewaddress", [], wallet);
+  const info = await getAddressInfo(config, wallet, address);
   return {
     address: info.unconfidential ?? address,
     scriptPubKey: info.scriptPubKey,
@@ -235,11 +254,10 @@ async function allocateWalletAddress(
 }
 
 async function listWalletUtxos(
-  elementsCliPath: string,
+  config: SimplicityClientConfig,
   wallet: string
 ): Promise<SponsorCandidate[]> {
-  const result = await runCommand(elementsCliPath, [`-rpcwallet=${wallet}`, "listunspent", "0", "9999999", "[]", "true"]);
-  const parsed = JSON.parse(result.stdout) as WalletListUnspentResult[];
+  const parsed = await callRpc<WalletListUnspentResult[]>(config, "listunspent", [0, 9999999, [], true], wallet);
   return parsed.map((entry) => ({
     txid: entry.txid,
     vout: entry.vout,
@@ -317,9 +335,12 @@ function buildPsetSummary(decoded: Record<string, any>, meta: Record<string, any
   };
 }
 
-async function getScriptPubKeyHexFromAddress(elementsCliPath: string, address: string): Promise<string> {
-  const result = await runCommand(elementsCliPath, ["getaddressinfo", address]);
-  const parsed = JSON.parse(result.stdout) as { scriptPubKey?: string };
+async function getScriptPubKeyHexFromAddress(
+  config: SimplicityClientConfig,
+  address: string,
+  wallet?: string
+): Promise<string> {
+  const parsed = await callRpc<{ scriptPubKey?: string }>(config, "getaddressinfo", [address], wallet);
   if (!parsed.scriptPubKey) {
     throw new ExecutionError(`Could not get scriptPubKey from address: ${address}`);
   }
@@ -327,12 +348,13 @@ async function getScriptPubKeyHexFromAddress(elementsCliPath: string, address: s
 }
 
 async function assertSummaryPolicy(
-  elementsCliPath: string,
+  config: SimplicityClientConfig,
   summary: PsetSummary,
-  expectedLiquidReceiver?: string
+  expectedLiquidReceiver?: string,
+  wallet?: string
 ): Promise<void> {
   if (!expectedLiquidReceiver) return;
-  const expectedSpk = await getScriptPubKeyHexFromAddress(elementsCliPath, expectedLiquidReceiver);
+  const expectedSpk = await getScriptPubKeyHexFromAddress(config, expectedLiquidReceiver, wallet);
   const normalOutputs = summary.outputs.filter((output) => output.isFee !== true);
   const found = normalOutputs.some((output) => (output.scriptPubKeyHex ?? "").toLowerCase() === expectedSpk);
   if (!found) {
@@ -357,16 +379,15 @@ async function buildExecutionState(
   contractUtxo: ContractUtxo;
   sendSat: number;
 }> {
-  const elementsCliPath = config.toolchain.elementsCliPath ?? "eltc";
-  await runCommand(elementsCliPath, [`-rpcwallet=${input.wallet}`, "getwalletinfo"]);
+  await callRpc<Record<string, any>>(config, "getwalletinfo", [], input.wallet);
 
   const feeSat = input.feeSat ?? config.defaults?.feeSat ?? DEFAULT_FEE_SAT;
   const minSat = feeSat + DUST_MARGIN_SAT;
   const utxoPolicy = input.utxoPolicy ?? config.defaults?.utxoPolicy ?? "smallest_over";
-  const recipientInfo = await getAddressInfo(elementsCliPath, input.wallet, input.toAddress);
+  const recipientInfo = await getAddressInfo(config, input.wallet, input.toAddress);
   const recipientAddress = recipientInfo.unconfidential ?? input.toAddress;
 
-  const utxos = await scanUtxosByAddress(elementsCliPath, artifact.compiled.contractAddress);
+  const utxos = await scanUtxosByAddress(config, artifact.compiled.contractAddress);
   const contractUtxo = chooseUtxo(utxos, minSat, utxoPolicy);
   if (!contractUtxo) {
     throw new UtxoNotFoundError(
@@ -385,26 +406,25 @@ async function buildExecutionState(
     });
   }
 
-  const inputsJson = JSON.stringify([
+  const inputsJson = [
     {
       txid: contractUtxo.txid,
       vout: contractUtxo.vout,
       sequence: input.sequence ?? DEFAULT_SEQUENCE,
     },
-  ]);
-  const outputsJson = JSON.stringify([{ [recipientAddress]: satToBtcNumber(sendSat) }, { fee: satToBtcNumber(feeSat) }]);
-  const pset1 = await runCommand(elementsCliPath, [
+  ];
+  const outputsJson = [{ [recipientAddress]: satToBtcNumber(sendSat) }, { fee: satToBtcNumber(feeSat) }];
+  const pset1 = await callRpc<string>(
+    config,
     "createpsbt",
-    inputsJson,
-    outputsJson,
-    String(getArtifactLocktime(artifact)),
-    "true",
-  ]);
-  const psetUpdated = await runCommand(elementsCliPath, ["utxoupdatepsbt", pset1.stdout]);
+    [inputsJson, outputsJson, getArtifactLocktime(artifact), true],
+    input.wallet
+  );
+  const psetUpdated = await callRpc<string>(config, "utxoupdatepsbt", [pset1], input.wallet);
   const utxoSpec = `${contractUtxo.scriptPubKey}:${contractUtxo.asset}:${satToBtcStringFromNumber(contractUtxo.sat)}`;
   const updateJson = (await runHalUpdateInput(
     config.toolchain.halSimplicityPath,
-    psetUpdated.stdout,
+    psetUpdated,
     0,
     utxoSpec,
     artifact.compiled.cmr,
@@ -415,7 +435,7 @@ async function buildExecutionState(
     throw new ExecutionError("update-input did not return a pset", updateJson);
   }
 
-  const decoded = await decodePsbt(elementsCliPath, pset2, input.wallet);
+  const decoded = await decodePsbt(config, pset2, input.wallet);
   const summary = buildPsetSummary(decoded, {
     network: artifact.network,
     purpose: input.purpose ?? "sdk_execute",
@@ -473,9 +493,8 @@ export async function executeContractCall(
   artifact: SimplicityArtifact,
   input: ExecuteCallInput
 ): Promise<ExecuteResult> {
-  const elementsCliPath = config.toolchain.elementsCliPath ?? "eltc";
   const state = await buildExecutionState(config, artifact, input);
-  await assertSummaryPolicy(elementsCliPath, state.summary, input.expectedLiquidReceiver);
+  await assertSummaryPolicy(config, state.summary, input.expectedLiquidReceiver, input.wallet);
 
   const finalizedPset = await signContractInput(
     config,
@@ -495,13 +514,16 @@ export async function executeContractCall(
 
   let txId: string | undefined;
   if (input.broadcast) {
-    const mempool = await runCommand(elementsCliPath, ["testmempoolaccept", `["${rawTxHex}"]`]);
-    const mempoolParsed = JSON.parse(mempool.stdout) as Array<{ allowed?: boolean }>;
+    const mempoolParsed = await callRpc<Array<{ allowed?: boolean }>>(
+      config,
+      "testmempoolaccept",
+      [[rawTxHex]],
+      input.wallet
+    );
     if (!Array.isArray(mempoolParsed) || mempoolParsed[0]?.allowed !== true) {
       throw new ExecutionError("testmempoolaccept rejected transaction", mempoolParsed);
     }
-    const sendTx = await runCommand(elementsCliPath, ["sendrawtransaction", rawTxHex]);
-    txId = sendTx.stdout.trim();
+    txId = await callRpc<string>(config, "sendrawtransaction", [rawTxHex], input.wallet);
   }
 
   return {
@@ -521,8 +543,7 @@ export async function findContractUtxos(
   config: SimplicityClientConfig,
   artifact: SimplicityArtifact
 ): Promise<ContractUtxo[]> {
-  const elementsCliPath = config.toolchain.elementsCliPath ?? "eltc";
-  return scanUtxosByAddress(elementsCliPath, artifact.compiled.contractAddress);
+  return scanUtxosByAddress(config, artifact.compiled.contractAddress);
 }
 
 export async function executeGaslessContractCall(
@@ -533,15 +554,14 @@ export async function executeGaslessContractCall(
   if (input.relayer) {
     return executeRelayedGaslessContractCall(config, artifact, input, input.relayer);
   }
-  const elementsCliPath = config.toolchain.elementsCliPath ?? "eltc";
   const wallet = input.wallet ?? config.rpc.wallet ?? "simplicity-test";
   if (!input.sponsorWallet) {
     throw new ValidationError("sponsorWallet is required when relayer is not provided");
   }
-  await runCommand(elementsCliPath, [`-rpcwallet=${wallet}`, "getwalletinfo"]);
-  await runCommand(elementsCliPath, [`-rpcwallet=${input.sponsorWallet}`, "getwalletinfo"]);
+  await callRpc<Record<string, any>>(config, "getwalletinfo", [], wallet);
+  await callRpc<Record<string, any>>(config, "getwalletinfo", [], input.sponsorWallet);
 
-  const contractUtxos = await scanUtxosByAddress(elementsCliPath, artifact.compiled.contractAddress);
+  const contractUtxos = await scanUtxosByAddress(config, artifact.compiled.contractAddress);
   const contractUtxo = chooseUtxo(
     contractUtxos,
     input.sendAmount ? Math.round(input.sendAmount * 1e8) : 1,
@@ -564,12 +584,12 @@ export async function executeGaslessContractCall(
     if (!input.contractChangeAddress) {
       throw new ValidationError("contractChangeAddress is required when sendAmount is smaller than the contract UTXO");
     }
-    const changeInfo = await getAddressInfo(elementsCliPath, wallet, input.contractChangeAddress);
+    const changeInfo = await getAddressInfo(config, wallet, input.contractChangeAddress);
     contractChangeAddress = changeInfo.unconfidential ?? input.contractChangeAddress;
     contractChangeScriptPubKey = changeInfo.scriptPubKey;
   }
 
-  const sponsorUtxos = await listWalletUtxos(elementsCliPath, input.sponsorWallet);
+  const sponsorUtxos = await listWalletUtxos(config, input.sponsorWallet);
   const sponsorInput = chooseSponsorUtxo(sponsorUtxos, feeSat);
   if (!sponsorInput) {
     throw new UtxoNotFoundError(`No sponsor UTXO found in wallet=${input.sponsorWallet} for feeSat=${feeSat}`);
@@ -580,17 +600,17 @@ export async function executeGaslessContractCall(
   let sponsorChangeScriptPubKey: string | undefined;
   if (sponsorChangeSat > 0) {
     if (input.sponsorChangeAddress) {
-      const info = await getAddressInfo(elementsCliPath, input.sponsorWallet, input.sponsorChangeAddress);
+      const info = await getAddressInfo(config, input.sponsorWallet, input.sponsorChangeAddress);
       sponsorChangeAddress = info.unconfidential ?? input.sponsorChangeAddress;
       sponsorChangeScriptPubKey = info.scriptPubKey;
     } else {
-      const allocated = await allocateWalletAddress(elementsCliPath, input.sponsorWallet);
+      const allocated = await allocateWalletAddress(config, input.sponsorWallet);
       sponsorChangeAddress = allocated.address;
       sponsorChangeScriptPubKey = allocated.scriptPubKey;
     }
   }
 
-  const recipientInfo = await getAddressInfo(elementsCliPath, wallet, input.toAddress);
+  const recipientInfo = await getAddressInfo(config, wallet, input.toAddress);
   const recipientAddress = recipientInfo.unconfidential ?? input.toAddress;
 
   const outputs: Array<Record<string, number>> = [{ [recipientAddress]: satToBtcNumber(sendSat) }];
@@ -602,23 +622,21 @@ export async function executeGaslessContractCall(
   }
   outputs.push({ fee: satToBtcNumber(feeSat) });
 
-  const inputsJson = JSON.stringify([
+  const inputsJson = [
     { txid: contractUtxo.txid, vout: contractUtxo.vout, sequence: DEFAULT_SEQUENCE },
     { txid: sponsorInput.txid, vout: sponsorInput.vout, sequence: DEFAULT_SEQUENCE },
-  ]);
-  const outputsJson = JSON.stringify(outputs);
-  const pset1 = await runCommand(elementsCliPath, [
+  ];
+  const pset1 = await callRpc<string>(
+    config,
     "createpsbt",
-    inputsJson,
-    outputsJson,
-    String(getArtifactLocktime(artifact)),
-    "true",
-  ]);
-  const psetUpdated = await runCommand(elementsCliPath, ["utxoupdatepsbt", pset1.stdout]);
+    [inputsJson, outputs, getArtifactLocktime(artifact), true],
+    wallet
+  );
+  const psetUpdated = await callRpc<string>(config, "utxoupdatepsbt", [pset1], wallet);
   const contractSpec = `${contractUtxo.scriptPubKey}:${contractUtxo.asset}:${satToBtcStringFromNumber(contractUtxo.sat)}`;
   const contractUpdated = (await runHalUpdateInput(
     config.toolchain.halSimplicityPath,
-    psetUpdated.stdout,
+    psetUpdated,
     0,
     contractSpec,
     artifact.compiled.cmr,
@@ -628,7 +646,7 @@ export async function executeGaslessContractCall(
     throw new ExecutionError("update-input did not return a pset", contractUpdated);
   }
 
-  const decoded = await decodePsbt(elementsCliPath, contractUpdated.pset, input.sponsorWallet);
+  const decoded = await decodePsbt(config, contractUpdated.pset, input.sponsorWallet);
   const summary = buildPsetSummary(decoded, {
     network: artifact.network,
     purpose: "sdk_gasless_execute",
@@ -660,34 +678,37 @@ export async function executeGaslessContractCall(
     input.witness
   );
 
-  const sponsorSigned = await runCommand(elementsCliPath, [
-    `-rpcwallet=${input.sponsorWallet}`,
+  const sponsorSignedParsed = await callRpc<{ psbt?: string; complete?: boolean }>(
+    config,
     "walletprocesspsbt",
-    contractSignedPset,
-    "true",
-    "ALL",
-    "true",
-  ]);
-  const sponsorSignedParsed = JSON.parse(sponsorSigned.stdout) as { psbt?: string; complete?: boolean };
+    [contractSignedPset, true, "ALL", true],
+    input.sponsorWallet
+  );
   if (!sponsorSignedParsed.psbt) {
     throw new ExecutionError("walletprocesspsbt did not return a sponsor-signed pset", sponsorSignedParsed);
   }
 
-  const finalized = await runCommand(elementsCliPath, ["finalizepsbt", sponsorSignedParsed.psbt, "true"]);
-  const finalizedParsed = JSON.parse(finalized.stdout) as { complete?: boolean; hex?: string };
+  const finalizedParsed = await callRpc<{ complete?: boolean; hex?: string }>(
+    config,
+    "finalizepsbt",
+    [sponsorSignedParsed.psbt, true]
+  );
   if (!finalizedParsed.complete || !finalizedParsed.hex) {
     throw new ExecutionError("PSET was not complete after sponsor signing", finalizedParsed);
   }
 
   let txId: string | undefined;
   if (input.broadcast) {
-    const mempool = await runCommand(elementsCliPath, ["testmempoolaccept", `[\"${finalizedParsed.hex}\"]`]);
-    const mempoolParsed = JSON.parse(mempool.stdout) as Array<{ allowed?: boolean }>;
+    const mempoolParsed = await callRpc<Array<{ allowed?: boolean }>>(
+      config,
+      "testmempoolaccept",
+      [[finalizedParsed.hex]],
+      input.sponsorWallet
+    );
     if (!Array.isArray(mempoolParsed) || mempoolParsed[0]?.allowed !== true) {
       throw new ExecutionError("testmempoolaccept rejected transaction", mempoolParsed);
     }
-    const sent = await runCommand(elementsCliPath, ["sendrawtransaction", finalizedParsed.hex]);
-    txId = sent.stdout.trim();
+    txId = await callRpc<string>(config, "sendrawtransaction", [finalizedParsed.hex], input.sponsorWallet);
   }
 
   return {

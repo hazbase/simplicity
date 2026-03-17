@@ -13,6 +13,205 @@ Consumer validation note:
 - The published npm package has been validated from a fresh external Node.js project using `npm install @hazbase/simplicity`.
 - Verified flows include preset-based contract execution, custom `.simf` execution, and relayer-backed gasless execution on `liquidtestnet`.
 
+## Recursive Policy SDK
+
+The SDK now also exposes a generic `sdk.policies` domain for **parametric recursive covenants**.
+
+That means you can model a UTXO as:
+- a policy template definition,
+- a concrete policy state for the current recipient,
+- and a next constrained output that can re-apply the same `.simf` template to the next hop.
+
+Initial reference implementation:
+- `recursive-delay-required.simf`
+- `recursive-delay-optional.simf`
+
+Main entrypoints:
+- `sdk.outputBinding.describeSupport()`
+- `sdk.outputBinding.evaluateSupport(...)`
+- `sdk.policies.describeTemplate(...)`
+- `sdk.policies.validateTemplateParams(...)`
+- `sdk.policies.issue(...)`
+- `sdk.policies.prepareTransfer(...)`
+- `sdk.policies.inspectTransfer(...)`
+- `sdk.policies.executeTransfer(...)`
+- `sdk.policies.verifyState(...)`
+- `sdk.policies.verifyTransfer(...)`
+- `sdk.policies.exportEvidence(...)`
+
+Reference examples:
+- [describe-policy-template.ts](./examples/describe-policy-template.ts)
+- [custom-recursive-delay-required.manifest.json](./examples/custom-recursive-delay-required.manifest.json)
+- [show-required-policy-transfer.ts](./examples/show-required-policy-transfer.ts)
+- [show-optional-policy-transfer.ts](./examples/show-optional-policy-transfer.ts)
+- [execute-required-policy-transfer.ts](./examples/execute-required-policy-transfer.ts)
+- [execute-optional-policy-transfer.ts](./examples/execute-optional-policy-transfer.ts)
+
+### Policy Quickstart
+
+The shortest happy path is:
+1. Describe the template and validate params
+2. Issue the first policy-aware UTXO
+3. Prepare, inspect, execute, and verify the next transfer
+
+Required 1tx recursive hop:
+
+```ts
+const templates = sdk.policies.listTemplates();
+const bindingSupport = sdk.outputBinding.describeSupport();
+const bindingEvaluation = sdk.outputBinding.evaluateSupport({
+  assetId: "bitcoin",
+  requestedBindingMode: "descriptor-bound",
+  outputForm: { amountForm: "confidential" },
+});
+
+const manifest = sdk.policies.describeTemplate({
+  templateId: "recursive-delay",
+  propagationMode: "required",
+});
+
+const params = sdk.policies.validateTemplateParams({
+  templateId: manifest.templateId,
+  propagationMode: "required",
+  params: { lockDistanceBlocks: 2 },
+});
+
+const externalManifest = await sdk.policies.loadTemplateManifest({
+  manifestPath: "./examples/custom-recursive-delay-required.manifest.json",
+});
+
+const issued = await sdk.policies.issue({
+  recipient: { mode: "policy", recipientXonly: currentRecipientXonly },
+  template: { templateId: "recursive-delay", value: { policyTemplateId: "recursive-delay" } },
+  params,
+  amountSat: 6000,
+  assetId: "bitcoin",
+  propagationMode: "required",
+});
+
+const prepared = await sdk.policies.prepareTransfer({
+  currentArtifact: issued.compiled.artifact,
+  template: { templateId: "recursive-delay", value: { policyTemplateId: "recursive-delay" } },
+  currentStateValue: issued.state,
+  nextReceiver: { mode: "policy", recipientXonly: nextRecipientXonly },
+  nextAmountSat: 6000,
+  nextParams: { lockDistanceBlocks: 2 },
+  outputBindingMode: "descriptor-bound",
+});
+```
+
+`sdk.outputBinding.describeSupport()` is the public support matrix for generalized binding. It tells you:
+- which output forms can be auto-derived today,
+- when manual `nextOutputHash` is still allowed,
+- when `descriptor-bound` falls back to `script-bound`,
+- and which runtime paths are validated locally vs on testnet.
+
+`sdk.outputBinding.evaluateSupport(...)` is the quick deterministic answer for a specific scenario. It tells you:
+- the requested binding mode,
+- the resolved binding mode,
+- the reason code,
+- which unsupported features are blocking auto-derive,
+- and whether the manual-hash path would keep `descriptor-bound` available.
+
+If you want the `optional` branch instead, swap:
+- `propagationMode: "optional"`
+- `nextReceiver: { mode: "plain", address: ... }` for plain exit, or keep `mode: "policy"` for the recursive branch
+
+The matching CLI flow is:
+- `policy list-templates`
+- `binding describe-support`
+- `binding evaluate-support`
+- `policy describe-template`
+- `policy validate-template-params`
+- `policy issue`
+- `policy build-output-descriptor`
+- `policy prepare-transfer`
+- `policy inspect-transfer`
+- `policy execute-transfer`
+- `policy verify-state`
+- `policy verify-transfer`
+- `policy export-evidence`
+
+For a testnet runtime example that spends an already-funded current policy UTXO, see:
+- [execute-required-policy-transfer.ts](./examples/execute-required-policy-transfer.ts)
+- [execute-optional-policy-transfer.ts](./examples/execute-optional-policy-transfer.ts)
+
+The intended model is:
+- `propagationMode: "required"`: next hop must remain policy-aware
+- `propagationMode: "optional"`: next hop may remain policy-aware or exit to a plain address
+- `propagationMode: "none"`: the policy ends at this hop
+
+In `required` mode, the current state uses a **1tx direct hop**. The contract checks the current recipient, the relative timelock, the fee output shape, and the next constrained output script hash in the same spend.
+In `optional` mode, the same current state can either:
+- exit to a plain address, or
+- bind the next constrained output in the same transaction
+and the verification report marks the recursive branch as `conditional-hop`.
+
+Current policy enforcement labels:
+- `direct-hop`: `required` 1tx current -> next constrained output
+- `conditional-hop`: `optional` mode when the recursive branch is chosen
+- `sdk-path`: plain exit / no recursive enforcement
+
+If a caller can supply `nextOutputHash`, both recursive policy templates can also take the stronger `descriptor-bound` path and compare `output_hash(0)` at runtime. In that case the amount becomes runtime-bound together with the rest of the output descriptor.
+To make that path easier to use from the public policy API, the SDK now also exposes `sdk.policies.buildOutputDescriptor(...)` and the CLI command `policy build-output-descriptor`. These help derive the next constrained output address, script hash, and canonical descriptor summary before the transfer call.
+The public binding paths are now:
+- `explicit-v1`: `buildOutputDescriptor(...)` auto-derives `nextOutputHash` from high-level inputs when the asset is supplied as `bitcoin` or as a 64-character asset id
+- `raw-output-v1`: advanced callers pass `assetBytesHex`, `amountBytesHex`, `nonceBytesHex`, plus either `scriptPubKeyHex` or `scriptPubKeyHashHex`, and either `rangeProofHex` or `rangeProofHashHex`, and the SDK derives `output_hash(0)` deterministically
+- `manual-hash`: callers supply `nextOutputHash` directly and keep `descriptor-bound` even when auto-derive is unavailable or intentionally bypassed
+- unsupported: the SDK falls back to `script-bound` and records the reason explicitly
+Advanced callers can also pass output-form hints (`assetForm`, `amountForm`, `nonceForm`, `rangeProofForm`) to make confidential/generalized shapes explicit in the descriptor metadata.
+Elements excludes surjection proofs from `output_hash(0)`, so the current generalized binding surface does not require `surjectionProofHex`.
+If that auto-derivation is not available, the SDK now falls back to `script-bound` and records the fallback reason in the verification report instead of silently pretending the stronger mode succeeded.
+The descriptor build result, transfer verification report, and evidence bundle now all carry the same derivation metadata:
+- `supportedForm`
+- `reasonCode`
+- `autoDerived`
+- `fallbackReason`
+- `bindingInputs`
+
+The policy verification and evidence JSON shapes are now versioned:
+- `PolicyVerificationReport.schemaVersion = "policy-verification-report/v1"`
+- `PolicyEvidenceBundle.schemaVersion = "policy-evidence-bundle/v1"`
+and built-in/external template manifests use:
+- `PolicyTemplateManifest.manifestVersion = "policy-template-manifest/v1"`
+
+For relative timelocks, the public policy flow now also derives the contract input sequence from `lockDistanceBlocks`, so `check_lock_distance(...)` can be exercised on testnet without dropping back to the default spend sequence.
+
+The public verification report now uses the same trust vocabulary across policy flows:
+- `committed`
+- `runtimeBound`
+- `sdkVerified`
+
+When an output binding is present, the report can also include:
+- `supportedForm`
+- `reasonCode`
+- `nextOutputHash`
+- `autoDerived`
+- `fallbackReason`
+- `bindingInputs`
+
+This is intentionally explicit about current scope:
+- `explicit-v1`:
+  - explicit asset
+  - explicit amount
+  - null nonce
+  - empty range proof
+  - asset input as `bitcoin` or a 64-character asset id
+- `raw-output-v1`:
+  - caller provides raw output field bytes
+  - SDK derives `output_hash(0)` from those bytes deterministically
+- `manual-hash`:
+  - caller provides `nextOutputHash` directly
+- not yet treated as a default path:
+  - wallet/RPC-driven confidential output reconstruction
+
+For the current runtime validation scope and timelock test-environment caveats, see [docs/design/recursive-policy-runtime-validation.md](./docs/design/recursive-policy-runtime-validation.md).
+Reproducible policy confidence commands:
+- `npm run e2e:policy-local`
+- `POLICY_OUTPUT_BINDING_MODE=script-bound npm run e2e:policy-testnet`
+- `POLICY_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:policy-testnet`
+- `npm run e2e:policy-consumer`
+
 ## Validated Scenarios
 
 The published package has been exercised from a blank external consumer project. For the full reproducible fixture, see [docs/consumer-validation/README.md](./docs/consumer-validation/README.md).
@@ -136,209 +335,286 @@ For a bond-oriented walkthrough, see [docs/definitions/README.md](./docs/definit
 
 ## Trusted Issuance State JSON
 
-The same hash-anchor model now also applies to issuance state documents such as a bond issuance record.
+The same hash-anchor model also applies to issuance state documents such as a bond issuance record.
 
-This is useful when you want to say not only:
-
+This lets us say not only:
 - "these are the bond terms,"
 
 but also:
-
 - "this bond was issued in this amount, with this outstanding principal, under this controller."
 
-The SDK now supports:
-
+The SDK supports:
 - loading and hashing a state JSON with `sdk.loadStateDocument(...)`,
 - storing its hash in the artifact,
 - committing `STATE_HASH` into custom `.simf` contract logic,
 - verifying later that the issuance state JSON still matches the compiled contract.
 
-For Bond issuance, the recommended shape is:
+The recommended Bond issuance shape still captures:
+- `issuanceId`
+- `bondId`
+- `issuedPrincipal`
+- `outstandingPrincipal`
+- `redeemedPrincipal`
+- `currencyAssetId`
+- `controllerXonly`
+- `issuedAt`
+- `status`
 
-```json
-{
-  "issuanceId": "BOND-2026-001-ISSUE-1",
-  "bondId": "BOND-2026-001",
-  "issuerEntityId": "hazbase-treasury",
-  "issuedPrincipal": 1000000,
-  "outstandingPrincipal": 1000000,
-  "redeemedPrincipal": 0,
-  "currencyAssetId": "bitcoin",
-  "controllerXonly": "<xonly>",
-  "issuedAt": "2026-03-10T00:00:00Z",
-  "status": "ISSUED"
-}
-```
+## Public Architecture
 
-To move from an issued bond into a redemption state, the SDK now also supports a minimal state transition model:
+The SDK is now organized around three public layers:
+- `sdk.outputBinding`: cross-domain output-binding support matrix and fallback behavior
+- `sdk.policies`: generic recursive covenant / transfer engine
+- `sdk.bonds`: Bond business layer built on Policy Core primitives and shared output binding
 
-- `ISSUED -> PARTIALLY_REDEEMED`
-- `ISSUED/PARTIALLY_REDEEMED -> REDEEMED`
+This means:
+- use `sdk.policies` when you want a generic constrained-transfer engine,
+- use `sdk.bonds` when you want bond definition / issuance / redemption / settlement / closing / evidence semantics,
+- use `sdk.outputBinding.describeSupport()` when you want the canonical explanation of supported forms, manual hash paths, and fallback behavior,
+- use `sdk.outputBinding.evaluateSupport(...)` when you want the deterministic answer for one concrete output-form scenario.
 
-The next state records:
+## Bond Domain Layer
 
-- `previousStateHash`
-- `lastTransition.type`
-- `lastTransition.amount`
-- `lastTransition.at`
+`sdk.bonds` is now intentionally a **thin business facade**.
 
-and the SDK verifies the principal invariant:
+Its public responsibility is:
+- bond definition / issuance / settlement / closing schema and invariant handling,
+- business event orchestration,
+- audit / evidence / finality payload export.
 
-- `issuedPrincipal = outstandingPrincipal + redeemedPrincipal`
+Public Bond API:
+- `sdk.bonds.define(...)`
+- `sdk.bonds.verify(...)`
+- `sdk.bonds.load(...)`
+- `sdk.bonds.issue(...)`
+- `sdk.bonds.prepareRedemption(...)`
+- `sdk.bonds.inspectRedemption(...)`
+- `sdk.bonds.executeRedemption(...)`
+- `sdk.bonds.verifyRedemption(...)`
+- `sdk.bonds.buildSettlement(...)`
+- `sdk.bonds.verifySettlement(...)`
+- `sdk.bonds.prepareClosing(...)`
+- `sdk.bonds.inspectClosing(...)`
+- `sdk.bonds.executeClosing(...)`
+- `sdk.bonds.verifyClosing(...)`
+- `sdk.bonds.exportEvidence(...)`
+- `sdk.bonds.exportFinalityPayload(...)`
 
-On top of that, the SDK can now build a `BondSettlementDescriptor`, which bundles the intended settlement envelope into one canonical document:
+What is no longer part of the public Bond surface:
+- machine / rollover / state-machine helpers,
+- script-bound / descriptor-bound machine compile helpers,
+- expected-output descriptor helpers as a standalone public API.
 
-- `definitionHash`
-- `previousStateHash`
-- `nextStateHash`
-- `nextContractAddress`
-- `nextAmountSat`
-- `maxFeeSat`
-- status progression and principal deltas
+Those lower-level primitives are kept only for internal regression and protocol research under:
+- `src/internal/experimental/bond.ts`
+- `examples/internal/experimental/bonds/`
 
-The redemption machine commits that settlement descriptor hash as an additional anchor. This does not yet mean full runtime output introspection, but it does mean the machine can now honestly claim a committed settlement envelope instead of just a scattered set of fields.
+### Shared Output Binding
 
-Minimal TypeScript flow:
+Bond settlement/build/verify now uses the same binding engine as Policy Core.
+That means Bond and Policy return the same binding metadata vocabulary:
+- `supportedForm`
+- `reasonCode`
+- `autoDerived`
+- `fallbackReason`
+- `bindingInputs`
+
+Current practical behavior:
+- `script-bound`: runtime binds next output script hash, output count, and fee output position
+- `descriptor-bound`: runtime binds `output_hash(0)` when the output form is supported or when the caller supplies a manual `nextOutputHash`
+- unsupported `descriptor-bound` requests fall back to `script-bound` with an explicit reason code
+- supported advanced paths:
+  - `explicit-v1`
+  - `raw-output-v1`
+  - `manual-hash`
+- current generalized/confidential story is explicit on purpose:
+  - unsupported high-level confidential forms still report why they fall back
+  - `raw-output-v1` exists for callers that already know the output bytes or already know the SHA-256 hashes of the scriptPubKey / range proof
+  - surjection proofs are intentionally outside this contract because Elements excludes them from `output_hash(0)`
+  - wallet/RPC-backed confidential auto-reconstruction is still a non-goal in this phase
+
+You can evaluate a concrete binding scenario before building a transfer:
 
 ```ts
-const compiled = await sdk.bonds.defineBond({
+const evaluation = sdk.outputBinding.evaluateSupport({
+  assetId: "bitcoin",
+  requestedBindingMode: "descriptor-bound",
+  outputForm: { amountForm: "confidential" },
+});
+
+const rawEvaluation = sdk.outputBinding.evaluateSupport({
+  assetId: "unsupported-asset-alias",
+  requestedBindingMode: "descriptor-bound",
+  rawOutput: {
+    assetBytesHex: "01" + "22".repeat(32),
+    amountBytesHex: "01000000000000076c",
+    nonceBytesHex: "00",
+    scriptPubKeyHex: "5120" + "11".repeat(32),
+    rangeProofHex: "",
+  },
+});
+```
+
+### Bond Runtime Confidence
+
+Latest fresh Bond testnet reruns:
+
+| Binding | Funding txid | Execution txid | Rerun command |
+| --- | --- | --- | --- |
+| `script-bound` | `1c982864ef6c83da4eb7f8018edc4cbdff439db7c6366984b3f85ad4937e2c4f` | `d659c4bdce6b32650ff58ac37ccaa55209a9f04d5dc4595f956fad034089f580` | `BOND_OUTPUT_BINDING_MODE=script-bound npm run e2e:bond-testnet` |
+| `descriptor-bound` | `72d0015b51a74c3cc81f7abb74a4f6f894c7f7bbd1e83647939459d7b40e504f` | `85e0830a7b2ba33ca37d5f11bd981938418fc472e98657095680ada71387974c` | `BOND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:bond-testnet` |
+
+For the current truth source and caveats, see [docs/design/bond-runtime-validation.md](./docs/design/bond-runtime-validation.md).
+
+### Minimal Bond Flow
+
+```ts
+const compiled = await sdk.bonds.define({
   definitionPath: "./docs/definitions/bond-definition.json",
   issuancePath: "./docs/definitions/bond-issuance-state.json",
   simfPath: "./docs/definitions/bond-issuance-anchor.simf",
   artifactPath: "./bond-issuance.artifact.json",
 });
 
-const verification = await sdk.bonds.verifyBond({
+const verified = await sdk.bonds.verify({
   artifactPath: "./bond-issuance.artifact.json",
   definitionPath: "./docs/definitions/bond-definition.json",
   issuancePath: "./docs/definitions/bond-issuance-state.json",
 });
 
-console.log(verification.crossChecks.principalInvariantValid);
-console.log(verification.issuance.trust.effectiveMode);
-```
-
-Minimal redemption flow:
-
-```ts
-const preview = await sdk.bonds.buildBondRedemption({
+const redemption = await sdk.bonds.prepareRedemption({
   definitionPath: "./docs/definitions/bond-definition.json",
   previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
   amount: 250000,
   redeemedAt: "2027-03-10T00:00:00Z",
+  nextStateSimfPath: "./docs/definitions/bond-issuance-anchor.simf",
+  nextAmountSat: 1900,
+  outputBindingMode: "script-bound",
 });
 
-const compiled = await sdk.bonds.redeemBond({
+const settlement = await sdk.bonds.buildSettlement({
   definitionPath: "./docs/definitions/bond-definition.json",
   previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
-  amount: 250000,
-  redeemedAt: "2027-03-10T00:00:00Z",
-  simfPath: "./docs/definitions/bond-issuance-anchor.simf",
-  artifactPath: "./bond-redemption.artifact.json",
+  nextIssuanceValue: redemption.preview.next,
+  nextStateSimfPath: "./docs/definitions/bond-issuance-anchor.simf",
+  nextAmountSat: 1900,
+  outputBindingMode: "script-bound",
 });
 
-const transition = await sdk.bonds.verifyBondTransition({
-  previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
-  nextIssuancePath: "./docs/definitions/bond-issuance-state-partial-redemption.json",
-});
-
-const payload = await sdk.bonds.buildBondPayload({
-  artifactPath: "./bond-redemption.artifact.json",
+const closing = await sdk.bonds.prepareClosing({
   definitionPath: "./docs/definitions/bond-definition.json",
-  issuancePath: "./docs/definitions/bond-issuance-state-partial-redemption.json",
+  redeemedIssuancePath: "./docs/definitions/bond-issuance-state-redeemed.json",
+  settlementDescriptorValue: settlement.descriptor,
+  closedAt: "2027-03-10T00:00:00Z",
 });
 
-const transitionPayload = await sdk.bonds.buildBondTransitionPayload({
+const evidence = await sdk.bonds.exportEvidence({
+  artifactPath: "./bond-issuance.artifact.json",
   definitionPath: "./docs/definitions/bond-definition.json",
-  previousIssuancePath: "./docs/definitions/bond-issuance-state.json",
-  nextIssuancePath: "./docs/definitions/bond-issuance-state-partial-redemption.json",
+  issuancePath: "./docs/definitions/bond-issuance-state.json",
+  settlementDescriptorValue: settlement.descriptor,
 });
-
-console.log(preview.nextHash);
-console.log(compiled.state()?.hash);
-console.log(transition.transition.statusProgressionValid);
-console.log(payload.payload);
-console.log(transitionPayload.payload.redeemAmount);
 ```
 
-CLI equivalents:
+### Bond CLI Flow
 
 ```bash
-simplicity-cli state show \
-  --type bond-issuance \
-  --id BOND-2026-001-ISSUE-1 \
-  --json-path ./docs/definitions/bond-issuance-state.json
-
-simplicity-cli state verify \
-  --artifact ./bond-issuance.artifact.json \
-  --type bond-issuance \
-  --id BOND-2026-001-ISSUE-1 \
-  --json-path ./docs/definitions/bond-issuance-state.json
+simplicity-cli bond define \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --issuance-json ./docs/definitions/bond-issuance-state.json \
+  --simf ./docs/definitions/bond-issuance-anchor.simf \
+  --artifact ./bond-issuance.artifact.json
 
 simplicity-cli bond verify \
   --artifact ./bond-issuance.artifact.json \
   --definition-json ./docs/definitions/bond-definition.json \
   --issuance-json ./docs/definitions/bond-issuance-state.json
 
-simplicity-cli bond redeem \
+simplicity-cli bond prepare-redemption \
   --definition-json ./docs/definitions/bond-definition.json \
   --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
   --amount 250000 \
   --redeemed-at 2027-03-10T00:00:00Z \
-  --simf ./docs/definitions/bond-issuance-anchor.simf \
-  --next-issuance-out ./next-bond-issuance-state.json \
-  --artifact ./bond-redemption.artifact.json
+  --next-state-simf ./docs/definitions/bond-issuance-anchor.simf \
+  --next-amount-sat 1900 \
+  --output-binding-mode script-bound \
+  --next-issuance-out ./next-bond-issuance-state.json
 
-simplicity-cli bond verify-transition \
-  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
-
-simplicity-cli bond compile-transition \
+simplicity-cli bond build-settlement \
   --definition-json ./docs/definitions/bond-definition.json \
   --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
-  --simf ./docs/definitions/bond-redemption-transition.simf \
-  --artifact ./bond-transition.artifact.json
+  --next-issuance-json ./next-bond-issuance-state.json \
+  --next-state-simf ./docs/definitions/bond-issuance-anchor.simf \
+  --next-amount-sat 1900 \
+  --output-binding-mode script-bound
 
-simplicity-cli bond compile-redemption-machine \
+simplicity-cli bond prepare-closing \
   --definition-json ./docs/definitions/bond-definition.json \
-  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
-  --simf ./docs/definitions/bond-redemption-state-machine.simf \
-  --artifact ./bond-redemption-machine.artifact.json
+  --redeemed-issuance-json ./docs/definitions/bond-issuance-state-redeemed.json \
+  --settlement-descriptor-json ./bond-settlement.json \
+  --closed-at 2027-03-10T00:00:00Z
 
-simplicity-cli bond verify-machine \
-  --artifact ./bond-redemption-machine.artifact.json \
+simplicity-cli bond export-evidence \
+  --artifact ./bond-issuance.artifact.json \
   --definition-json ./docs/definitions/bond-definition.json \
-  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
+  --issuance-json ./docs/definitions/bond-issuance-state.json
 
-simplicity-cli bond plan-rollover \
-  --current-artifact ./bond-issuance.artifact.json \
-  --definition-json ./docs/definitions/bond-definition.json \
-  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
-  --next-simf ./docs/definitions/bond-issuance-anchor.simf \
-  --next-artifact ./bond-next.artifact.json
-
-simplicity-cli bond plan-machine-rollover \
-  --current-artifact ./bond-issuance.artifact.json \
-  --definition-json ./docs/definitions/bond-definition.json \
-  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json \
-  --machine-simf ./docs/definitions/bond-redemption-state-machine.simf \
-  --machine-artifact ./bond-redemption-machine.artifact.json
-
-simplicity-cli bond transition-payload \
-  --definition-json ./docs/definitions/bond-definition.json \
-  --previous-issuance-json ./docs/definitions/bond-issuance-state.json \
-  --next-issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
-
-simplicity-cli bond payload \
-  --artifact ./bond-redemption.artifact.json \
-  --definition-json ./docs/definitions/bond-definition.json \
-  --issuance-json ./docs/definitions/bond-issuance-state-partial-redemption.json
+simplicity-cli binding evaluate-support \
+  --asset-id bitcoin \
+  --output-binding-mode descriptor-bound \
+  --amount-form confidential
 ```
+
+Example `bond build-settlement` summary:
+
+```text
+descriptorHash=4d8f...
+bindingMode=descriptor-bound
+previousStateHash=8c3b...
+nextStateHash=56ae...
+nextContractAddress=tex1p...
+nextAmountSat=1900
+maxFeeSat=100
+supportedForm=explicit-v1
+reasonCode=OK_EXPLICIT
+autoDerived=true
+nextOutputHash=0b9a...
+bindingInputs(asset=bitcoin, amountSat=1900, nextOutputIndex=0, feeIndex=1, maxFeeSat=100)
+bindingInputForms(assetForm=explicit, amountForm=explicit, nonceForm=null, rangeProofForm=empty)
+```
+
+Example `bond verify-redemption` summary:
+
+```text
+phase=verify
+mode=descriptor-bound
+descriptorHash=4d8f...
+nextStateHash=56ae...
+nextAmountSat=1900
+verified=true
+bindingMode=descriptor-bound
+supportedForm=explicit-v1
+reasonCode=OK_EXPLICIT
+autoDerived=true
+nextOutputHash=0b9a...
+outputBinding.mode=descriptor-bound
+outputBinding.nextContractAddressCommitted=true
+outputBinding.outputCountRuntimeBound=true
+outputBinding.feeIndexRuntimeBound=true
+outputBinding.nextOutputHashRuntimeBound=true
+outputBinding.nextOutputScriptRuntimeBound=false
+```
+
+Important limitation:
+- Bond finality is stronger than before, but still intentionally partial.
+- `script-bound` currently runtime-binds output count, fee position, and next output script hash.
+- `descriptor-bound` adds runtime `output_hash(0)` binding for supported explicit/manual-hash paths.
+- exact next output amount is still not a fully generalized covenant across all output forms.
+- unsupported confidential/generalized output forms fall back deterministically and report why.
+
+For a Bond-oriented walkthrough that matches the current public surface, see [docs/definitions/README.md](./docs/definitions/README.md).
+For a packaged external-consumer smoke of the public business flow, run `npm run e2e:bond-consumer`.
+For the resumable Bond runtime/testnet validation flow, see [docs/design/bond-runtime-validation.md](./docs/design/bond-runtime-validation.md).
 
 ## Install
 
@@ -1006,6 +1282,7 @@ simplicity-cli gasless request \
 
 These examples are included to help you jump to the right workflow quickly.
 
+Core contract workflows:
 - [compile-custom.ts](./examples/compile-custom.ts): compile a custom `.simf` file.
 - [compile-preset.ts](./examples/compile-preset.ts): compile a built-in preset.
 - [inspect-contract.ts](./examples/inspect-contract.ts): inspect a contract spend before broadcast.
@@ -1015,21 +1292,28 @@ These examples are included to help you jump to the right workflow quickly.
 - [execute-htlc.ts](./examples/execute-htlc.ts): HTLC preset with custom witness values.
 - [execute-transfer-with-timeout-cooperative.ts](./examples/execute-transfer-with-timeout-cooperative.ts): cooperative multi-witness timeout flow.
 - [gasless-transfer.ts](./examples/gasless-transfer.ts): standard relayer-backed gasless L-BTC transfer.
-- [define-bond.ts](./examples/define-bond.ts): compile a bond example with a trusted definition hash anchor.
-- [show-bond-definition.ts](./examples/show-bond-definition.ts): verify and retrieve a trusted bond definition from JSON + artifact.
-- [define-bond-issuance.ts](./examples/define-bond-issuance.ts): compile a bond example with both trusted definition and issuance state anchors.
-- [show-bond-issuance.ts](./examples/show-bond-issuance.ts): load a bond artifact together with its verified issuance state.
-- [verify-bond-issuance.ts](./examples/verify-bond-issuance.ts): run combined Bond definition/state verification and invariant checks.
-- [redeem-bond-issuance.ts](./examples/redeem-bond-issuance.ts): build the next redemption state and compile a new anchored artifact.
-- [verify-bond-transition.ts](./examples/verify-bond-transition.ts): verify a previous/next issuance state transition.
-- [compile-bond-transition.ts](./examples/compile-bond-transition.ts): compile a transition contract that commits both previous and next issuance state hashes.
-- [compile-bond-redemption-machine.ts](./examples/compile-bond-redemption-machine.ts): compile a redemption transition contract that also commits redeem amount and transition kind.
-- [verify-bond-redemption-machine.ts](./examples/verify-bond-redemption-machine.ts): verify a compiled redemption machine artifact against definition, previous state, and next state inputs.
-- [plan-bond-rollover.ts](./examples/plan-bond-rollover.ts): build a runtime rollover plan that spends the current state UTXO into the next state's contract address.
-- [show-bond-transition-payload.ts](./examples/show-bond-transition-payload.ts): emit a bridge-ready payload for a previous/next redemption transition.
-- [show-bond-payload.ts](./examples/show-bond-payload.ts): emit a bridge-ready payload from a verified bond artifact.
-- [redeem-bond-issuance.ts](./examples/redeem-bond-issuance.ts): build a partially redeemed bond issuance state and anchor it in a new artifact.
-- [verify-bond-transition.ts](./examples/verify-bond-transition.ts): verify a redemption transition between two issuance state documents.
+
+Policy Core examples:
+- [describe-policy-template.ts](./examples/describe-policy-template.ts): inspect a public policy manifest and validate params.
+- [show-required-policy-transfer.ts](./examples/show-required-policy-transfer.ts): preview a required 1tx recursive transfer.
+- [show-optional-policy-transfer.ts](./examples/show-optional-policy-transfer.ts): preview an optional plain-or-recursive transfer.
+- [execute-required-policy-transfer.ts](./examples/execute-required-policy-transfer.ts): execute a funded required policy UTXO.
+- [execute-optional-policy-transfer.ts](./examples/execute-optional-policy-transfer.ts): execute an optional plain or recursive branch.
+- [custom-recursive-delay-required.manifest.json](./examples/custom-recursive-delay-required.manifest.json): example external manifest for custom template loading.
+
+Bond business-layer examples:
+- [define-bond.ts](./examples/define-bond.ts): compile a bond definition anchor with the generic contract API.
+- [show-bond-definition.ts](./examples/show-bond-definition.ts): verify and retrieve a trusted bond definition.
+- [define-bond-issuance.ts](./examples/define-bond-issuance.ts): define a bond issuance artifact.
+- [show-bond-issuance.ts](./examples/show-bond-issuance.ts): load a bond artifact with verified issuance state.
+- [verify-bond-issuance.ts](./examples/verify-bond-issuance.ts): run bond invariant checks against artifact + JSON inputs.
+- [show-bond-business-flow.ts](./examples/show-bond-business-flow.ts): walk the business-layer flow from definition through finality payload export.
+- [redeem-bond-issuance.ts](./examples/redeem-bond-issuance.ts): prepare a bond redemption preview and next issuance state.
+- [show-bond-settlement-payload.ts](./examples/show-bond-settlement-payload.ts): build a public settlement descriptor.
+- [verify-bond-settlement.ts](./examples/verify-bond-settlement.ts): verify a settlement descriptor against bond inputs.
+
+Internal / experimental Bond regressions:
+- [examples/internal/experimental/bonds/README.md](./examples/internal/experimental/bonds/README.md): low-level machine / rollover / transition helpers retained for research and regression only.
 
 In addition to the in-repo examples, the package has also been validated from a blank external consumer project with:
 - `npm install @hazbase/simplicity`
@@ -1037,6 +1321,11 @@ In addition to the in-repo examples, the package has also been validated from a 
 - preset compile -> fund -> inspect -> execute
 - custom `.simf` compile -> fund -> inspect -> execute
 - relayer-backed gasless execution
+- policy quickstart smoke via `npm run e2e:policy-consumer`
+
+## Covenant Roadmap
+
+If you want to see how the current bond lifecycle work can evolve toward stronger output binding, see [docs/design/full-covenant-output-binding.md](./docs/design/full-covenant-output-binding.md). That note captures what the local SimplicityHL examples appear to expose today and what the next realistic covenant milestones are.
 
 ## FAQ / Practical Notes
 

@@ -1,4 +1,5 @@
-import { createExampleClient, resolveExamplePath } from "./shared";
+import { verifyBondTransition } from "../../../../src/internal/experimental/bond";
+import { createExampleClient, resolveExamplePath } from "../../../shared";
 
 async function main() {
   const sdk = createExampleClient();
@@ -6,9 +7,12 @@ async function main() {
     "docs/definitions/bond-issuance-state.json",
     "BOND_PREVIOUS_ISSUANCE_JSON"
   );
-  const nextIssuancePath = resolveExamplePath("bond-redemption-state.json", "BOND_NEXT_ISSUANCE_JSON");
+  const nextIssuancePath = resolveExamplePath(
+    "bond-redemption-state.json",
+    "BOND_NEXT_ISSUANCE_JSON"
+  );
 
-  const result = await sdk.bonds.verifyBondTransition({
+  const result = await verifyBondTransition(sdk, {
     previousIssuancePath,
     nextIssuancePath,
   });

@@ -1,0 +1,144 @@
+/*
+ * Bond descriptor-bound settlement machine contract.
+ *
+ * This machine commits the full settlement descriptor and additionally binds
+ * the next non-fee output by its runtime output hash. This is stronger than
+ * the script-bound machine because it constrains the full output descriptor
+ * represented by output_hash(0), not just the next output script.
+ */
+fn not(bit: bool) -> bool {
+    <u1>::into(jet::complement_1(<bool>::into(bit)))
+}
+
+fn require_definition_anchor() {
+    let anchored_definition_hash: u256 = 0x{{DEFINITION_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_definition_hash, zero_hash)));
+}
+
+fn require_previous_state_anchor() {
+    let previous_state_hash: u256 = 0x{{PREVIOUS_STATE_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(previous_state_hash, zero_hash)));
+}
+
+fn require_state_anchor() {
+    let anchored_state_hash: u256 = 0x{{STATE_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_state_hash, zero_hash)));
+}
+
+fn require_next_contract_address_anchor() {
+    let next_contract_address_hash: u256 = 0x{{NEXT_CONTRACT_ADDRESS_HASH_256}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(next_contract_address_hash, zero_hash)));
+}
+
+fn require_settlement_descriptor_anchor() {
+    let settlement_descriptor_hash: u256 = 0x{{SETTLEMENT_DESCRIPTOR_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(settlement_descriptor_hash, zero_hash)));
+}
+
+fn require_expected_output_descriptor_anchor() {
+    let expected_output_descriptor_hash: u256 = 0x{{EXPECTED_OUTPUT_DESCRIPTOR_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(expected_output_descriptor_hash, zero_hash)));
+}
+
+fn require_expected_next_output_hash_anchor() {
+    let expected_next_output_hash: u256 = 0x{{EXPECTED_NEXT_OUTPUT_HASH_256}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(expected_next_output_hash, zero_hash)));
+}
+
+fn require_distinct_transition_state() {
+    let previous_state_hash: u256 = 0x{{PREVIOUS_STATE_HASH}};
+    let next_state_hash: u256 = 0x{{STATE_HASH}};
+    assert!(not(jet::eq_256(previous_state_hash, next_state_hash)));
+}
+
+fn require_transition_kind() {
+    let transition_kind: u256 = 0x{{TRANSITION_KIND_256}};
+    let redeem_kind: u256 = 0x0000000000000000000000000000000000000000000000000000000000000001;
+    assert!(jet::eq_256(transition_kind, redeem_kind));
+}
+
+fn require_redeem_amount() {
+    let redeem_amount: u256 = 0x{{REDEEM_AMOUNT_256}};
+    let zero_amount: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(redeem_amount, zero_amount)));
+}
+
+fn require_status_progression() {
+    let previous_status: u32 = 0x{{PREVIOUS_STATUS_32}};
+    let next_status: u32 = 0x{{NEXT_STATUS_32}};
+    let issued_status: u32 = 0x00000001;
+    let partial_status: u32 = 0x00000002;
+    let redeemed_status: u32 = 0x00000003;
+
+    match jet::eq_32(previous_status, issued_status) {
+        true => {},
+        false => assert!(jet::eq_32(previous_status, partial_status)),
+    };
+
+    match jet::eq_32(next_status, partial_status) {
+        true => {},
+        false => assert!(jet::eq_32(next_status, redeemed_status)),
+    };
+}
+
+fn require_principal_arithmetic() {
+    let previous_outstanding: u32 = 0x{{PREVIOUS_OUTSTANDING_32}};
+    let previous_redeemed: u32 = 0x{{PREVIOUS_REDEEMED_32}};
+    let next_outstanding: u32 = 0x{{NEXT_OUTSTANDING_32}};
+    let next_redeemed: u32 = 0x{{NEXT_REDEEMED_32}};
+    let redeem_amount: u32 = 0x{{REDEEM_AMOUNT_32}};
+    let partial_status: u32 = 0x00000002;
+    let redeemed_status: u32 = 0x00000003;
+    let next_status: u32 = 0x{{NEXT_STATUS_32}};
+    let zero: u32 = 0x00000000;
+
+    let (underflow, computed_next_outstanding): (bool, u32) = jet::subtract_32(previous_outstanding, redeem_amount);
+    assert!(not(underflow));
+    assert!(jet::eq_32(computed_next_outstanding, next_outstanding));
+
+    let (overflow, computed_next_redeemed): (bool, u32) = jet::add_32(previous_redeemed, redeem_amount);
+    assert!(not(overflow));
+    assert!(jet::eq_32(computed_next_redeemed, next_redeemed));
+
+    match jet::eq_32(next_outstanding, zero) {
+        true => assert!(jet::eq_32(next_status, redeemed_status)),
+        false => assert!(jet::eq_32(next_status, partial_status)),
+    };
+}
+
+fn require_output_shape() {
+    assert!(jet::eq_32(jet::num_outputs(), 2));
+    assert!(unwrap(jet::output_is_fee(1)));
+    let expected_next_output_hash: u256 = 0x{{EXPECTED_NEXT_OUTPUT_HASH_256}};
+    let actual_next_output_hash: u256 = match jet::output_hash(0) {
+        Some(output_hash : u256) => output_hash,
+        None => panic!(),
+    };
+    assert!(jet::eq_256(actual_next_output_hash, expected_next_output_hash));
+}
+
+fn main() {
+    require_definition_anchor();
+    require_previous_state_anchor();
+    require_state_anchor();
+    require_next_contract_address_anchor();
+    require_settlement_descriptor_anchor();
+    require_expected_output_descriptor_anchor();
+    require_expected_next_output_hash_anchor();
+    require_distinct_transition_state();
+    require_transition_kind();
+    require_redeem_amount();
+    require_status_progression();
+    require_principal_arithmetic();
+    require_output_shape();
+    jet::check_lock_height({{MIN_HEIGHT}});
+    let signer: Pubkey = 0x{{SIGNER_XONLY}};
+    jet::bip_0340_verify((signer, jet::sig_all_hash()), witness::SIGNER_SIGNATURE)
+}

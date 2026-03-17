@@ -48,10 +48,89 @@ function parseAssignments(values: string[]): Record<string, string | number> {
   return Object.fromEntries(
     values.map((entry) => {
       const [key, raw] = entry.split("=", 2);
+      if (raw === "true") return [key, true as unknown as string | number];
+      if (raw === "false") return [key, false as unknown as string | number];
       const asNumber = Number(raw);
       return [key, Number.isFinite(asNumber) && String(asNumber) === raw ? asNumber : raw];
     })
   );
+}
+
+function parsePolicyReceiver(prefix: string): Record<string, unknown> {
+  const mode = getArg(`${prefix}-mode`) ?? (getArg(`${prefix}-address`) ? "plain" : "policy");
+  if (mode === "plain") {
+    return { mode: "plain", address: requireArg(`${prefix}-address`) };
+  }
+  return {
+    mode: "policy",
+    recipientXonly: requireArg(`${prefix}-recipient-xonly`),
+  };
+}
+
+function parsePolicyOutputForm(): Record<string, unknown> | undefined {
+  const assetForm = getArg("asset-form");
+  const amountForm = getArg("amount-form");
+  const nonceForm = getArg("nonce-form");
+  const rangeProofForm = getArg("range-proof-form");
+  if (!assetForm && !amountForm && !nonceForm && !rangeProofForm) {
+    return undefined;
+  }
+  return {
+    ...(assetForm ? { assetForm } : {}),
+    ...(amountForm ? { amountForm } : {}),
+    ...(nonceForm ? { nonceForm } : {}),
+    ...(rangeProofForm ? { rangeProofForm } : {}),
+  };
+}
+
+function parseRawOutputFields(): Record<string, unknown> | undefined {
+  const assetBytesHex = getArg("asset-bytes-hex");
+  const amountBytesHex = getArg("amount-bytes-hex");
+  const nonceBytesHex = getArg("nonce-bytes-hex");
+  const scriptPubKeyHex = getArg("script-pubkey-hex");
+  const scriptPubKeyHashHex = getArg("script-pubkey-hash-hex");
+  const rangeProofHex = getArg("range-proof-hex-raw");
+  const rangeProofHashHex = getArg("range-proof-hash-hex");
+  if (
+    !assetBytesHex
+    && !amountBytesHex
+    && !nonceBytesHex
+    && !scriptPubKeyHex
+    && !scriptPubKeyHashHex
+    && !rangeProofHex
+    && !rangeProofHashHex
+  ) {
+    return undefined;
+  }
+  return {
+    ...(assetBytesHex ? { assetBytesHex } : {}),
+    ...(amountBytesHex ? { amountBytesHex } : {}),
+    ...(nonceBytesHex ? { nonceBytesHex } : {}),
+    ...(scriptPubKeyHex !== undefined ? { scriptPubKeyHex } : {}),
+    ...(scriptPubKeyHashHex ? { scriptPubKeyHashHex } : {}),
+    ...(rangeProofHex !== undefined ? { rangeProofHex } : {}),
+    ...(rangeProofHashHex ? { rangeProofHashHex } : {}),
+  };
+}
+
+function parsePolicyTemplateInput(): Record<string, unknown> {
+  const templateId = getArg("template-id");
+  const templateManifest = getArg("template-manifest");
+  const templateManifestValue = getArg("template-manifest-value");
+  if (!templateId && !templateManifest && !templateManifestValue) {
+    throw new Error("Missing required arg: --template-id or --template-manifest or --template-manifest-value");
+  }
+  const templateJson = getArg("template-json");
+  const parsedManifestValue = templateManifestValue ? JSON.parse(templateManifestValue) : undefined;
+  return {
+    ...(templateId ? { templateId } : {}),
+    ...(templateManifest ? { manifestPath: templateManifest } : {}),
+    ...(parsedManifestValue ? { manifestValue: parsedManifestValue } : {}),
+    ...(templateJson ? { jsonPath: templateJson } : templateId ? { value: { policyTemplateId: templateId } } : {}),
+    ...(getArg("state-simf") ? { stateSimfPath: getArg("state-simf") } : {}),
+    ...(getArg("direct-state-simf") ? { directStateSimfPath: getArg("direct-state-simf") } : {}),
+    ...(getArg("machine-simf") ? { transferMachineSimfPath: getArg("machine-simf") } : {}),
+  };
 }
 
 function parseWitnessAssignments(values: string[]): Record<string, { type: string; value: string }> {
@@ -144,6 +223,735 @@ function resolveConfig(): SimplicityClientConfig {
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function formatPolicyOutputBindingSummary(outputBinding: {
+  mode: string;
+  committed: boolean;
+  runtimeBound: boolean;
+  sdkVerified: boolean;
+  amountRuntimeBound: boolean;
+  nextOutputHashRuntimeBound: boolean;
+  nextOutputScriptRuntimeBound: boolean;
+  supportedForm?: string;
+  reasonCode?: string;
+  nextOutputHash?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+  bindingInputs?: {
+    assetId: string;
+    assetForm: string;
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+    nextAmountSat: number;
+    nextOutputIndex: number;
+    feeIndex: number;
+    maxFeeSat: number;
+    rawOutputComponents?: {
+      scriptPubKey: "raw-bytes" | "hash";
+      rangeProof: "raw-bytes" | "hash";
+    };
+  };
+}): string {
+  const lines = [
+    `mode=${outputBinding.mode}`,
+    `committed=${outputBinding.committed}`,
+    `runtimeBound=${outputBinding.runtimeBound}`,
+    `sdkVerified=${outputBinding.sdkVerified}`,
+    `amountRuntimeBound=${outputBinding.amountRuntimeBound}`,
+    `nextOutputHashRuntimeBound=${outputBinding.nextOutputHashRuntimeBound}`,
+    `nextOutputScriptRuntimeBound=${outputBinding.nextOutputScriptRuntimeBound}`,
+  ];
+  if (outputBinding.supportedForm) lines.push(`supportedForm=${outputBinding.supportedForm}`);
+  if (outputBinding.reasonCode) lines.push(`reasonCode=${outputBinding.reasonCode}`);
+  if (outputBinding.nextOutputHash) lines.push(`nextOutputHash=${outputBinding.nextOutputHash}`);
+  if (outputBinding.autoDerived !== undefined) lines.push(`autoDerived=${outputBinding.autoDerived}`);
+  if (outputBinding.fallbackReason) lines.push(`fallbackReason=${outputBinding.fallbackReason}`);
+  if (outputBinding.bindingInputs) {
+    lines.push(
+      `bindingInputs(asset=${outputBinding.bindingInputs.assetId}, amountSat=${outputBinding.bindingInputs.nextAmountSat}, nextOutputIndex=${outputBinding.bindingInputs.nextOutputIndex}, feeIndex=${outputBinding.bindingInputs.feeIndex}, maxFeeSat=${outputBinding.bindingInputs.maxFeeSat})`,
+      `bindingInputForms(assetForm=${outputBinding.bindingInputs.assetForm}, amountForm=${outputBinding.bindingInputs.amountForm}, nonceForm=${outputBinding.bindingInputs.nonceForm}, rangeProofForm=${outputBinding.bindingInputs.rangeProofForm})`,
+    );
+    if (outputBinding.bindingInputs.rawOutputComponents) {
+      lines.push(
+        `rawOutputComponents(scriptPubKey=${outputBinding.bindingInputs.rawOutputComponents.scriptPubKey}, rangeProof=${outputBinding.bindingInputs.rawOutputComponents.rangeProof})`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatPolicyVerificationSummary(input: {
+  ok?: boolean;
+  reason?: string;
+  propagationMode: string;
+  enforcement: string;
+  plainExitAllowed: boolean;
+  nextPolicyRequired: boolean;
+  nextPolicyPresent: boolean;
+  outputBinding?: {
+    mode: string;
+    committed: boolean;
+    runtimeBound: boolean;
+    sdkVerified: boolean;
+    amountRuntimeBound: boolean;
+  nextOutputHashRuntimeBound: boolean;
+  nextOutputScriptRuntimeBound: boolean;
+  supportedForm?: string;
+  reasonCode?: string;
+  nextOutputHash?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+    bindingInputs?: {
+      assetId: string;
+      assetForm: string;
+      amountForm: string;
+      nonceForm: string;
+      rangeProofForm: string;
+      nextAmountSat: number;
+      nextOutputIndex: number;
+      feeIndex: number;
+      maxFeeSat: number;
+    };
+  };
+}): string {
+  const lines = [
+    `ok=${input.ok ?? true}`,
+    `propagationMode=${input.propagationMode}`,
+    `enforcement=${input.enforcement}`,
+    `plainExitAllowed=${input.plainExitAllowed}`,
+    `nextPolicyRequired=${input.nextPolicyRequired}`,
+    `nextPolicyPresent=${input.nextPolicyPresent}`,
+  ];
+  if (input.reason) lines.push(`reason=${input.reason}`);
+  if (input.outputBinding) {
+    lines.push("outputBinding:");
+    lines.push(indent(formatPolicyOutputBindingSummary(input.outputBinding), 2));
+  }
+  return lines.join("\n");
+}
+
+function formatPolicyEvidenceSummary(input: {
+  templateHash: string;
+  stateHash: string;
+  transferHash?: string | null;
+  enforcement: string;
+  outputBinding?: {
+    mode: string;
+    committed: boolean;
+    runtimeBound: boolean;
+    sdkVerified: boolean;
+    amountRuntimeBound: boolean;
+  nextOutputHashRuntimeBound: boolean;
+  nextOutputScriptRuntimeBound: boolean;
+  supportedForm?: string;
+  reasonCode?: string;
+  nextOutputHash?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+    bindingInputs?: {
+      assetId: string;
+      assetForm: string;
+      amountForm: string;
+      nonceForm: string;
+      rangeProofForm: string;
+      nextAmountSat: number;
+      nextOutputIndex: number;
+      feeIndex: number;
+      maxFeeSat: number;
+    };
+  } | null;
+  sourceVerificationMode: string;
+}): string {
+  const lines = [
+    `templateHash=${input.templateHash}`,
+    `stateHash=${input.stateHash}`,
+    `transferHash=${input.transferHash ?? "(none)"}`,
+    `enforcement=${input.enforcement}`,
+    `sourceVerificationMode=${input.sourceVerificationMode}`,
+  ];
+  if (input.outputBinding) {
+    lines.push("outputBinding:");
+    lines.push(indent(formatPolicyOutputBindingSummary(input.outputBinding), 2));
+  }
+  return lines.join("\n");
+}
+
+function formatPolicyInspectOrExecuteSummary(input: {
+  mode: string;
+  propagationMode: string;
+  enforcement: string;
+  plainExitAllowed: boolean;
+  nextPolicyRequired: boolean;
+  nextPolicyPresent: boolean;
+  outputBinding?: {
+    mode: string;
+    committed: boolean;
+    runtimeBound: boolean;
+    sdkVerified: boolean;
+    amountRuntimeBound: boolean;
+    nextOutputHashRuntimeBound: boolean;
+    nextOutputScriptRuntimeBound: boolean;
+    nextOutputHash?: string;
+    autoDerived?: boolean;
+    fallbackReason?: string;
+    bindingInputs?: {
+      assetId: string;
+      assetForm: string;
+      amountForm: string;
+      nonceForm: string;
+      rangeProofForm: string;
+      nextAmountSat: number;
+      nextOutputIndex: number;
+      feeIndex: number;
+      maxFeeSat: number;
+    };
+  };
+  txId?: string;
+  broadcasted?: boolean;
+  summaryHash?: string;
+}): string {
+  const lines = [
+    `mode=${input.mode}`,
+    `propagationMode=${input.propagationMode}`,
+    `enforcement=${input.enforcement}`,
+    `plainExitAllowed=${input.plainExitAllowed}`,
+    `nextPolicyRequired=${input.nextPolicyRequired}`,
+    `nextPolicyPresent=${input.nextPolicyPresent}`,
+  ];
+  if (input.summaryHash) lines.push(`summaryHash=${input.summaryHash}`);
+  if (input.txId) lines.push(`txId=${input.txId}`);
+  if (input.broadcasted !== undefined) lines.push(`broadcasted=${input.broadcasted}`);
+  if (input.outputBinding) {
+    lines.push("outputBinding:");
+    lines.push(indent(formatPolicyOutputBindingSummary(input.outputBinding), 2));
+  }
+  return lines.join("\n");
+}
+
+function formatPolicyIssueSummary(input: {
+  propagationMode: string;
+  policyHash: string;
+  contractAddress: string;
+  amountSat: number;
+  assetId: string;
+  recipient: string;
+}): string {
+  return [
+    `propagationMode=${input.propagationMode}`,
+    `policyHash=${input.policyHash}`,
+    `contractAddress=${input.contractAddress}`,
+    `amountSat=${input.amountSat}`,
+    `assetId=${input.assetId}`,
+    `recipient=${input.recipient}`,
+  ].join("\n");
+}
+
+function formatPolicyOutputDescriptorBuildSummary(input: {
+  mode: string;
+  nextContractAddress: string;
+  nextOutputScriptHash?: string;
+  nextOutputHash?: string;
+  nextAmountSat: number;
+  assetId: string;
+  supportedForm?: string;
+  reasonCode?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+}): string {
+  const lines = [
+    `mode=${input.mode}`,
+    `nextContractAddress=${input.nextContractAddress}`,
+    `nextAmountSat=${input.nextAmountSat}`,
+    `assetId=${input.assetId}`,
+  ];
+  if (input.supportedForm) lines.push(`supportedForm=${input.supportedForm}`);
+  if (input.reasonCode) lines.push(`reasonCode=${input.reasonCode}`);
+  if (input.nextOutputScriptHash) lines.push(`nextOutputScriptHash=${input.nextOutputScriptHash}`);
+  if (input.nextOutputHash) lines.push(`nextOutputHash=${input.nextOutputHash}`);
+  if (input.autoDerived !== undefined) lines.push(`autoDerived=${input.autoDerived}`);
+  if (input.fallbackReason) lines.push(`fallbackReason=${input.fallbackReason}`);
+  return lines.join("\n");
+}
+
+function formatPolicyBindingSupportSummary(input: {
+  supportedForms: Array<{ form: string; description: string; autoDerived: boolean }>;
+  unsupportedOutputFeatures?: Array<{
+    feature: string;
+    description: string;
+    fallbackReasonCode: string;
+    manualHashSupported: boolean;
+  }>;
+  outputBindingModes: Record<string, { description: string; runtimeBinding: string; fallbackBehavior: string }>;
+  autoDeriveConditions: {
+    assetInput: string[];
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+    rawOutputFields?: string[];
+    rawOutputFieldAlternatives?: Record<string, string[]>;
+    outputHashExclusions?: string[];
+  };
+  manualHashPath: {
+    supported: boolean;
+    description: string;
+  };
+  fallbackBehavior: {
+    defaultMode: string;
+    reasonCodes: string[];
+  };
+  publicValidationMatrix: {
+    local: string[];
+    testnet: string[];
+  };
+  nonGoals: string[];
+}): string {
+  const lines = ["supportedForms:"];
+  for (const form of input.supportedForms) {
+    lines.push(
+      indent(
+        [
+          `form=${form.form}`,
+          `autoDerived=${form.autoDerived}`,
+          `description=${form.description}`,
+        ].join("\n"),
+        2,
+      ),
+    );
+  }
+  if (input.unsupportedOutputFeatures && input.unsupportedOutputFeatures.length > 0) {
+    lines.push("unsupportedOutputFeatures:");
+    for (const feature of input.unsupportedOutputFeatures) {
+      lines.push(
+        indent(
+          [
+            `feature=${feature.feature}`,
+            `fallbackReasonCode=${feature.fallbackReasonCode}`,
+            `manualHashSupported=${feature.manualHashSupported}`,
+            `description=${feature.description}`,
+          ].join("\n"),
+          2,
+        ),
+      );
+    }
+  }
+  lines.push("outputBindingModes:");
+  for (const [mode, details] of Object.entries(input.outputBindingModes)) {
+    lines.push(
+      indent(
+        [
+          `mode=${mode}`,
+          `runtimeBinding=${details.runtimeBinding}`,
+          `description=${details.description}`,
+          `fallbackBehavior=${details.fallbackBehavior}`,
+        ].join("\n"),
+        2,
+      ),
+    );
+  }
+  lines.push(
+    `autoDeriveConditions=assetInput(${input.autoDeriveConditions.assetInput.join(", ")}), amountForm=${input.autoDeriveConditions.amountForm}, nonceForm=${input.autoDeriveConditions.nonceForm}, rangeProofForm=${input.autoDeriveConditions.rangeProofForm}`,
+  );
+  if (input.autoDeriveConditions.rawOutputFields?.length) {
+    lines.push(`rawOutputFields=${input.autoDeriveConditions.rawOutputFields.join(",")}`);
+  }
+  if (input.autoDeriveConditions.rawOutputFieldAlternatives) {
+    for (const [name, fields] of Object.entries(input.autoDeriveConditions.rawOutputFieldAlternatives)) {
+      lines.push(`rawOutputFieldAlternatives.${name}=${fields.join("|")}`);
+    }
+  }
+  if (input.autoDeriveConditions.outputHashExclusions?.length) {
+    lines.push(`outputHashExclusions=${input.autoDeriveConditions.outputHashExclusions.join(",")}`);
+  }
+  lines.push(`manualHashPath.supported=${input.manualHashPath.supported}`);
+  lines.push(`manualHashPath.description=${input.manualHashPath.description}`);
+  lines.push(`fallback.defaultMode=${input.fallbackBehavior.defaultMode}`);
+  lines.push(`fallback.reasonCodes=${input.fallbackBehavior.reasonCodes.join(",")}`);
+  lines.push(`validation.local=${input.publicValidationMatrix.local.join(" | ")}`);
+  lines.push(`validation.testnet=${input.publicValidationMatrix.testnet.join(" | ")}`);
+  if (input.nonGoals.length > 0) {
+    lines.push("nonGoals:");
+    for (const goal of input.nonGoals) {
+      lines.push(indent(goal, 2));
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatOutputBindingSupportEvaluationSummary(input: {
+  requestedBindingMode: string;
+  resolvedBindingMode: string;
+  supportedForm: string;
+  reasonCode: string;
+  autoDerived: boolean;
+  fallbackReason?: string;
+  assetId: string;
+  outputForm: {
+    assetForm: string;
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+  };
+  unsupportedFeatures: string[];
+  explicitAssetInputSupported: boolean;
+  manualHashSupplied: boolean;
+  nextOutputScriptAvailable: boolean;
+  rawOutputProvided?: boolean;
+  rawOutputComponents?: {
+    scriptPubKey: "raw-bytes" | "hash";
+    rangeProof: "raw-bytes" | "hash";
+  };
+}): string {
+  const lines = [
+    `requestedBindingMode=${input.requestedBindingMode}`,
+    `resolvedBindingMode=${input.resolvedBindingMode}`,
+    `supportedForm=${input.supportedForm}`,
+    `reasonCode=${input.reasonCode}`,
+    `autoDerived=${input.autoDerived}`,
+    `assetId=${input.assetId}`,
+    `explicitAssetInputSupported=${input.explicitAssetInputSupported}`,
+    `manualHashSupplied=${input.manualHashSupplied}`,
+    `nextOutputScriptAvailable=${input.nextOutputScriptAvailable}`,
+    `rawOutputProvided=${input.rawOutputProvided === true}`,
+    `outputForm(assetForm=${input.outputForm.assetForm}, amountForm=${input.outputForm.amountForm}, nonceForm=${input.outputForm.nonceForm}, rangeProofForm=${input.outputForm.rangeProofForm})`,
+  ];
+  if (input.fallbackReason) lines.push(`fallbackReason=${input.fallbackReason}`);
+  if (input.rawOutputComponents) {
+    lines.push(
+      `rawOutputComponents(scriptPubKey=${input.rawOutputComponents.scriptPubKey}, rangeProof=${input.rawOutputComponents.rangeProof})`,
+    );
+  }
+  if (input.unsupportedFeatures.length > 0) {
+    lines.push(`unsupportedFeatures=${input.unsupportedFeatures.join(",")}`);
+  }
+  return lines.join("\n");
+}
+
+function formatBondBindingMetadataSummary(input: {
+  bindingMode?: string;
+  supportedForm?: string;
+  reasonCode?: string;
+  nextOutputHash?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+  bindingInputs?: {
+    assetId: string;
+    assetForm: string;
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+    nextAmountSat: number;
+    nextOutputIndex: number;
+    feeIndex: number;
+    maxFeeSat: number;
+    rawOutputComponents?: {
+      scriptPubKey: "raw-bytes" | "hash";
+      rangeProof: "raw-bytes" | "hash";
+    };
+  };
+}): string {
+  const lines = [];
+  if (input.bindingMode) lines.push(`bindingMode=${input.bindingMode}`);
+  if (input.supportedForm) lines.push(`supportedForm=${input.supportedForm}`);
+  if (input.reasonCode) lines.push(`reasonCode=${input.reasonCode}`);
+  if (input.nextOutputHash) lines.push(`nextOutputHash=${input.nextOutputHash}`);
+  if (input.autoDerived !== undefined) lines.push(`autoDerived=${input.autoDerived}`);
+  if (input.fallbackReason) lines.push(`fallbackReason=${input.fallbackReason}`);
+  if (input.bindingInputs) {
+    lines.push(
+      `bindingInputs(asset=${input.bindingInputs.assetId}, amountSat=${input.bindingInputs.nextAmountSat}, nextOutputIndex=${input.bindingInputs.nextOutputIndex}, feeIndex=${input.bindingInputs.feeIndex}, maxFeeSat=${input.bindingInputs.maxFeeSat})`,
+      `bindingInputForms(assetForm=${input.bindingInputs.assetForm}, amountForm=${input.bindingInputs.amountForm}, nonceForm=${input.bindingInputs.nonceForm}, rangeProofForm=${input.bindingInputs.rangeProofForm})`,
+    );
+    if (input.bindingInputs.rawOutputComponents) {
+      lines.push(
+        `rawOutputComponents(scriptPubKey=${input.bindingInputs.rawOutputComponents.scriptPubKey}, rangeProof=${input.bindingInputs.rawOutputComponents.rangeProof})`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatBondDefinitionOrVerificationSummary(input: {
+  artifactPath?: string;
+  contractAddress?: string;
+  cmr?: string;
+  definitionHash?: string;
+  issuanceHash?: string;
+  definitionOk?: boolean;
+  issuanceOk?: boolean;
+  principalInvariantValid?: boolean;
+  definitionTrustMode?: string;
+  issuanceTrustMode?: string;
+}): string {
+  return [
+    input.contractAddress ? `contractAddress=${input.contractAddress}` : undefined,
+    input.cmr ? `cmr=${input.cmr}` : undefined,
+    input.artifactPath ? `artifactPath=${input.artifactPath}` : undefined,
+    input.definitionHash ? `definitionHash=${input.definitionHash}` : undefined,
+    input.issuanceHash ? `issuanceHash=${input.issuanceHash}` : undefined,
+    input.definitionOk !== undefined ? `definitionOk=${input.definitionOk}` : undefined,
+    input.issuanceOk !== undefined ? `issuanceOk=${input.issuanceOk}` : undefined,
+    input.principalInvariantValid !== undefined
+      ? `principalInvariantValid=${input.principalInvariantValid}`
+      : undefined,
+    input.definitionTrustMode ? `definitionTrustMode=${input.definitionTrustMode}` : undefined,
+    input.issuanceTrustMode ? `issuanceTrustMode=${input.issuanceTrustMode}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatBondSettlementSummary(input: {
+  ok?: boolean;
+  reason?: string;
+  descriptorHash: string;
+  bindingMode: string;
+  previousStateHash?: string;
+  nextStateHash?: string;
+  nextContractAddress?: string;
+  nextAmountSat?: number;
+  maxFeeSat?: number;
+  supportedForm?: string;
+  reasonCode?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+  nextOutputHash?: string;
+  bindingInputs?: {
+    assetId: string;
+    assetForm: string;
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+    nextAmountSat: number;
+    nextOutputIndex: number;
+    feeIndex: number;
+    maxFeeSat: number;
+  };
+}): string {
+  const lines = [
+    input.ok !== undefined ? `ok=${input.ok}` : undefined,
+    input.reason ? `reason=${input.reason}` : undefined,
+    `descriptorHash=${input.descriptorHash}`,
+    `bindingMode=${input.bindingMode}`,
+    input.previousStateHash ? `previousStateHash=${input.previousStateHash}` : undefined,
+    input.nextStateHash ? `nextStateHash=${input.nextStateHash}` : undefined,
+    input.nextContractAddress ? `nextContractAddress=${input.nextContractAddress}` : undefined,
+    input.nextAmountSat !== undefined ? `nextAmountSat=${input.nextAmountSat}` : undefined,
+    input.maxFeeSat !== undefined ? `maxFeeSat=${input.maxFeeSat}` : undefined,
+  ].filter(Boolean) as string[];
+  const binding = formatBondBindingMetadataSummary({
+    bindingMode: input.bindingMode,
+    supportedForm: input.supportedForm,
+    reasonCode: input.reasonCode,
+    autoDerived: input.autoDerived,
+    fallbackReason: input.fallbackReason,
+    nextOutputHash: input.nextOutputHash,
+    bindingInputs: input.bindingInputs,
+  });
+  return binding ? `${lines.join("\n")}\n${binding}` : lines.join("\n");
+}
+
+function formatBondRedemptionSummary(input: {
+  phase: "prepare" | "inspect" | "execute" | "verify";
+  mode: string;
+  nextStatus?: string;
+  descriptorHash: string;
+  nextStateHash?: string;
+  nextContractAddress?: string;
+  nextAmountSat?: number;
+  summaryHash?: string;
+  txId?: string;
+  broadcasted?: boolean;
+  verified?: boolean;
+  bindingMetadata?: {
+    bindingMode?: string;
+    supportedForm?: string;
+    reasonCode?: string;
+    nextOutputHash?: string;
+    autoDerived?: boolean;
+    fallbackReason?: string;
+    bindingInputs?: {
+      assetId: string;
+      assetForm: string;
+      amountForm: string;
+      nonceForm: string;
+      rangeProofForm: string;
+      nextAmountSat: number;
+      nextOutputIndex: number;
+      feeIndex: number;
+      maxFeeSat: number;
+    };
+  };
+  outputBindingTrust?: {
+    mode: string;
+    nextContractAddressCommitted: boolean;
+    expectedOutputDescriptorCommitted?: boolean;
+    settlementDescriptorCommitted?: boolean;
+    outputCountRuntimeBound: boolean;
+    feeIndexRuntimeBound: boolean;
+    amountRuntimeBound: boolean;
+    nextOutputHashRuntimeBound: boolean;
+    nextOutputScriptRuntimeBound: boolean;
+    supportedForm?: string;
+    reasonCode?: string;
+    nextOutputHash?: string;
+    autoDerived?: boolean;
+    fallbackReason?: string;
+    bindingInputs?: {
+      assetId: string;
+      assetForm: string;
+      amountForm: string;
+      nonceForm: string;
+      rangeProofForm: string;
+      nextAmountSat: number;
+      nextOutputIndex: number;
+      feeIndex: number;
+      maxFeeSat: number;
+    };
+  };
+}): string {
+  const lines = [
+    `phase=${input.phase}`,
+    `mode=${input.mode}`,
+    input.nextStatus ? `nextStatus=${input.nextStatus}` : undefined,
+    `descriptorHash=${input.descriptorHash}`,
+    input.nextStateHash ? `nextStateHash=${input.nextStateHash}` : undefined,
+    input.nextContractAddress ? `nextContractAddress=${input.nextContractAddress}` : undefined,
+    input.nextAmountSat !== undefined ? `nextAmountSat=${input.nextAmountSat}` : undefined,
+    input.summaryHash ? `summaryHash=${input.summaryHash}` : undefined,
+    input.txId ? `txId=${input.txId}` : undefined,
+    input.broadcasted !== undefined ? `broadcasted=${input.broadcasted}` : undefined,
+    input.verified !== undefined ? `verified=${input.verified}` : undefined,
+  ].filter(Boolean) as string[];
+  if (input.bindingMetadata) {
+    const bindingMetadata = formatBondBindingMetadataSummary(input.bindingMetadata);
+    if (bindingMetadata) lines.push(bindingMetadata);
+  }
+  if (input.outputBindingTrust) {
+    lines.push(
+      [
+        `outputBinding.mode=${input.outputBindingTrust.mode}`,
+        `outputBinding.nextContractAddressCommitted=${input.outputBindingTrust.nextContractAddressCommitted}`,
+        input.outputBindingTrust.expectedOutputDescriptorCommitted !== undefined
+          ? `outputBinding.expectedOutputDescriptorCommitted=${input.outputBindingTrust.expectedOutputDescriptorCommitted}`
+          : undefined,
+        input.outputBindingTrust.settlementDescriptorCommitted !== undefined
+          ? `outputBinding.settlementDescriptorCommitted=${input.outputBindingTrust.settlementDescriptorCommitted}`
+          : undefined,
+        `outputBinding.outputCountRuntimeBound=${input.outputBindingTrust.outputCountRuntimeBound}`,
+        `outputBinding.feeIndexRuntimeBound=${input.outputBindingTrust.feeIndexRuntimeBound}`,
+        `outputBinding.amountRuntimeBound=${input.outputBindingTrust.amountRuntimeBound}`,
+        `outputBinding.nextOutputHashRuntimeBound=${input.outputBindingTrust.nextOutputHashRuntimeBound}`,
+        `outputBinding.nextOutputScriptRuntimeBound=${input.outputBindingTrust.nextOutputScriptRuntimeBound}`,
+        input.outputBindingTrust.supportedForm
+          ? `outputBinding.supportedForm=${input.outputBindingTrust.supportedForm}`
+          : undefined,
+        input.outputBindingTrust.reasonCode
+          ? `outputBinding.reasonCode=${input.outputBindingTrust.reasonCode}`
+          : undefined,
+        input.outputBindingTrust.nextOutputHash
+          ? `outputBinding.nextOutputHash=${input.outputBindingTrust.nextOutputHash}`
+          : undefined,
+        input.outputBindingTrust.autoDerived !== undefined
+          ? `outputBinding.autoDerived=${input.outputBindingTrust.autoDerived}`
+          : undefined,
+        input.outputBindingTrust.fallbackReason
+          ? `outputBinding.fallbackReason=${input.outputBindingTrust.fallbackReason}`
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+    if (input.outputBindingTrust.bindingInputs) {
+      lines.push(
+        `outputBinding.bindingInputs(asset=${input.outputBindingTrust.bindingInputs.assetId}, amountSat=${input.outputBindingTrust.bindingInputs.nextAmountSat}, nextOutputIndex=${input.outputBindingTrust.bindingInputs.nextOutputIndex}, feeIndex=${input.outputBindingTrust.bindingInputs.feeIndex}, maxFeeSat=${input.outputBindingTrust.bindingInputs.maxFeeSat})`,
+        `outputBinding.bindingInputForms(assetForm=${input.outputBindingTrust.bindingInputs.assetForm}, amountForm=${input.outputBindingTrust.bindingInputs.amountForm}, nonceForm=${input.outputBindingTrust.bindingInputs.nonceForm}, rangeProofForm=${input.outputBindingTrust.bindingInputs.rangeProofForm})`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatBondClosingSummary(input: {
+  phase: "prepare" | "inspect" | "execute" | "verify";
+  closingHash?: string;
+  closedAt?: string;
+  closingReason?: string;
+  finalSettlementDescriptorHash?: string;
+  summaryHash?: string;
+  txId?: string;
+  broadcasted?: boolean;
+  verified?: boolean;
+  checks?: Record<string, boolean>;
+}): string {
+  const lines = [
+    `phase=${input.phase}`,
+    input.closingHash ? `closingHash=${input.closingHash}` : undefined,
+    input.closedAt ? `closedAt=${input.closedAt}` : undefined,
+    input.closingReason ? `closingReason=${input.closingReason}` : undefined,
+    input.finalSettlementDescriptorHash
+      ? `finalSettlementDescriptorHash=${input.finalSettlementDescriptorHash}`
+      : undefined,
+    input.summaryHash ? `summaryHash=${input.summaryHash}` : undefined,
+    input.txId ? `txId=${input.txId}` : undefined,
+    input.broadcasted !== undefined ? `broadcasted=${input.broadcasted}` : undefined,
+    input.verified !== undefined ? `verified=${input.verified}` : undefined,
+  ].filter(Boolean) as string[];
+  if (input.checks) {
+    lines.push(
+      `checks=${Object.entries(input.checks)
+        .map(([key, value]) => `${key}:${value}`)
+        .join(",")}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatBondEvidenceSummary(input: {
+  definitionHash: string;
+  issuanceHash: string;
+  settlementHash?: string | null;
+  closingHash?: string | null;
+  renderedSourceHash?: string | null;
+  sourceVerificationMode?: string;
+}): string {
+  return [
+    `definitionHash=${input.definitionHash}`,
+    `issuanceHash=${input.issuanceHash}`,
+    input.settlementHash ? `settlementHash=${input.settlementHash}` : undefined,
+    input.closingHash ? `closingHash=${input.closingHash}` : undefined,
+    input.renderedSourceHash ? `renderedSourceHash=${input.renderedSourceHash}` : undefined,
+    input.sourceVerificationMode ? `sourceVerificationMode=${input.sourceVerificationMode}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatBondFinalityPayloadSummary(input: {
+  bondId: string;
+  issuanceId: string;
+  definitionHash: string;
+  issuanceStateHash: string;
+  contractAddress: string;
+  cmr: string;
+  bindingMode: string;
+  settlementDescriptorHash?: string | null;
+  closingDescriptorHash?: string | null;
+}): string {
+  return [
+    `bondId=${input.bondId}`,
+    `issuanceId=${input.issuanceId}`,
+    `definitionHash=${input.definitionHash}`,
+    `issuanceStateHash=${input.issuanceStateHash}`,
+    input.settlementDescriptorHash ? `settlementDescriptorHash=${input.settlementDescriptorHash}` : undefined,
+    input.closingDescriptorHash ? `closingDescriptorHash=${input.closingDescriptorHash}` : undefined,
+    `contractAddress=${input.contractAddress}`,
+    `cmr=${input.cmr}`,
+    `bindingMode=${input.bindingMode}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function indent(text: string, spaces = 2): string {
@@ -525,7 +1333,7 @@ async function main(): Promise<void> {
   const sdk = createSimplicityClient(resolveConfig());
 
   if (!command) {
-    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|bond|gasless> ...");
+    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|binding|policy|bond|gasless> ...");
   }
 
   if (command === "compile") {
@@ -612,6 +1420,419 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "policy" && subcommand === "issue") {
+    const result = await sdk.policies.issue({
+      recipient: parsePolicyReceiver("recipient") as any,
+      template: parsePolicyTemplateInput() as any,
+      params: parseAssignments(getMultiArgs("param")) as any,
+      amountSat: Number(requireArg("amount-sat")),
+      assetId: requireArg("asset-id"),
+      propagationMode: (getArg("propagation-mode", "required") as "required" | "optional" | "none"),
+      artifactPath: getArg("artifact"),
+    });
+    const stateOut = getArg("state-out");
+    if (stateOut) {
+      const resolved = path.resolve(stateOut);
+      await mkdir(path.dirname(resolved), { recursive: true });
+      await writeFile(resolved, `${JSON.stringify(result.state, null, 2)}\n`, "utf8");
+    }
+    printJson({
+      summary: {
+        propagationMode: result.state.propagationMode,
+        policyHash: result.policyHash,
+        contractAddress: result.compiled.deployment().contractAddress,
+        amountSat: result.state.amountSat,
+        assetId: result.state.assetId,
+        recipient: result.state.recipient,
+      },
+      summaryText: formatPolicyIssueSummary({
+        propagationMode: result.state.propagationMode,
+        policyHash: result.policyHash,
+        contractAddress: result.compiled.deployment().contractAddress,
+        amountSat: result.state.amountSat,
+        assetId: result.state.assetId,
+        recipient: result.state.recipient,
+      }),
+      artifact: result.compiled.artifact,
+      deployment: result.compiled.deployment(),
+      state: result.state,
+      policyTemplate: result.policyTemplate,
+      policyHash: result.policyHash,
+      stateOut: stateOut ? path.resolve(stateOut) : undefined,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "list-templates") {
+    printJson(sdk.policies.listTemplates());
+    return;
+  }
+
+  if (command === "binding" && subcommand === "describe-support") {
+    const result = sdk.outputBinding.describeSupport();
+    printJson({
+      summaryText: formatPolicyBindingSupportSummary(result),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "binding" && subcommand === "evaluate-support") {
+    const result = sdk.outputBinding.evaluateSupport({
+      assetId: requireArg("asset-id"),
+      requestedBindingMode:
+        (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined) ?? "descriptor-bound",
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      nextOutputScriptAvailable: hasFlag("without-script-hash") ? false : true,
+    });
+    printJson({
+      ...result,
+      summaryText: formatOutputBindingSupportEvaluationSummary(result),
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "verify-state") {
+    const result = await sdk.policies.verifyState({
+      artifactPath: requireArg("artifact"),
+      template: parsePolicyTemplateInput() as any,
+      statePath: getArg("state-json"),
+      stateValue: getArg("state-value") ? JSON.parse(getArg("state-value")!) : undefined,
+    });
+    printJson({
+      summaryText: formatPolicyVerificationSummary({
+        ok: result.ok,
+        reason: result.reason,
+        propagationMode: result.report.propagationMode,
+        enforcement: result.report.enforcement,
+        plainExitAllowed: result.report.plainExitAllowed,
+        nextPolicyRequired: result.report.nextPolicyRequired,
+        nextPolicyPresent: result.report.nextPolicyPresent,
+        outputBinding: (result.report as { outputBinding?: Parameters<typeof formatPolicyVerificationSummary>[0]["outputBinding"] }).outputBinding,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "describe-template") {
+    const templateManifest = getArg("template-manifest");
+    const templateManifestValue = getArg("template-manifest-value");
+    const templateId = getArg("template-id");
+    const result = templateManifest || templateManifestValue || !templateId
+      ? await sdk.policies.loadTemplateManifest({
+          templateId: templateId || undefined,
+          propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+          manifestPath: templateManifest || undefined,
+          manifestValue: templateManifestValue ? JSON.parse(templateManifestValue) : undefined,
+        })
+      : sdk.policies.describeTemplate({
+          templateId,
+          propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+        });
+    printJson(result);
+    return;
+  }
+
+  if (command === "policy" && subcommand === "validate-template-params") {
+    const templateManifest = getArg("template-manifest");
+    const templateManifestValue = getArg("template-manifest-value");
+    const manifest = templateManifest || templateManifestValue
+      ? await sdk.policies.loadTemplateManifest({
+          templateId: getArg("template-id") || undefined,
+          propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+          manifestPath: templateManifest || undefined,
+          manifestValue: templateManifestValue ? JSON.parse(templateManifestValue) : undefined,
+        })
+      : undefined;
+    const result = sdk.policies.validateTemplateParams({
+      templateId: getArg("template-id") || manifest?.templateId,
+      manifestValue: manifest,
+      propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+      params: parseAssignments(getMultiArgs("param")) as any,
+    });
+    printJson({ ok: true, params: result });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "build-output-descriptor") {
+    const result = await sdk.policies.buildOutputDescriptor({
+      nextCompiledContractAddress: requireArg("next-contract-address"),
+      nextAmountSat: Number(requireArg("next-amount-sat")),
+      assetId: requireArg("asset-id"),
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+      nextOutputIndex: getArg("next-output-index") ? Number(getArg("next-output-index")) : undefined,
+      feeIndex: getArg("fee-index") ? Number(getArg("fee-index")) : undefined,
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+    });
+    printJson({
+      summary: {
+        mode: result.descriptor.outputBindingMode,
+        nextContractAddress: result.descriptor.nextContractAddress,
+        nextOutputScriptHash: result.descriptor.nextOutputScriptHash ?? null,
+        nextOutputHash: result.descriptor.nextOutputHash ?? null,
+        nextAmountSat: result.descriptor.nextAmountSat,
+        assetId: result.descriptor.assetId,
+        supportedForm: result.supportedForm,
+        reasonCode: result.reasonCode,
+        autoDerived: result.autoDerivedNextOutputHash,
+        fallbackReason: result.fallbackReason ?? null,
+      },
+      summaryText: formatPolicyOutputDescriptorBuildSummary({
+        mode: result.descriptor.outputBindingMode,
+        nextContractAddress: result.descriptor.nextContractAddress,
+        nextOutputScriptHash: result.descriptor.nextOutputScriptHash,
+        nextOutputHash: result.descriptor.nextOutputHash,
+        nextAmountSat: result.descriptor.nextAmountSat,
+        assetId: result.descriptor.assetId,
+        supportedForm: result.supportedForm,
+        reasonCode: result.reasonCode,
+        autoDerived: result.autoDerivedNextOutputHash,
+        fallbackReason: result.fallbackReason,
+      }),
+      descriptor: result.descriptor,
+      descriptorSummary: result.summary,
+      supportedForm: result.supportedForm,
+      autoDerivedNextOutputHash: result.autoDerivedNextOutputHash,
+      reasonCode: result.reasonCode,
+      bindingInputs: result.bindingInputs,
+      fallbackReason: result.fallbackReason ?? null,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "prepare-transfer") {
+    const result = await sdk.policies.prepareTransfer({
+      currentArtifactPath: requireArg("current-artifact"),
+      template: parsePolicyTemplateInput() as any,
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: getArg("current-state-value") ? JSON.parse(getArg("current-state-value")!) : undefined,
+      nextReceiver: parsePolicyReceiver("next") as any,
+      nextAmountSat: Number(requireArg("next-amount-sat")),
+      nextParams: parseAssignments(getMultiArgs("next-param")) as any,
+      propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+      nextArtifactPath: getArg("next-artifact"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      nextOutputForm: parsePolicyOutputForm() as any,
+      nextRawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+    });
+    const nextStateOut = getArg("next-state-out");
+    if (nextStateOut && result.nextState) {
+      const resolved = path.resolve(nextStateOut);
+      await mkdir(path.dirname(resolved), { recursive: true });
+      await writeFile(resolved, `${JSON.stringify(result.nextState, null, 2)}\n`, "utf8");
+    }
+    const prepareOutputBinding = (
+      result.verificationReport as {
+        outputBinding?: Parameters<typeof formatPolicyInspectOrExecuteSummary>[0]["outputBinding"];
+      }
+    ).outputBinding;
+    printJson({
+      summary: {
+        mode: "prepare",
+        enforcement: result.verificationReport.enforcement,
+        propagationMode: result.verificationReport.propagationMode,
+        plainExitAllowed: result.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.verificationReport.nextPolicyPresent,
+        outputBinding: prepareOutputBinding ?? null,
+        summaryHash: result.transferSummary.hash,
+      },
+      summaryText: formatPolicyInspectOrExecuteSummary({
+        mode: "prepare",
+        propagationMode: result.verificationReport.propagationMode,
+        enforcement: result.verificationReport.enforcement,
+        plainExitAllowed: result.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.verificationReport.nextPolicyPresent,
+        outputBinding: prepareOutputBinding,
+        summaryHash: result.transferSummary.hash,
+      }),
+      ...result,
+      nextStateOut: nextStateOut && result.nextState ? path.resolve(nextStateOut) : undefined,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "verify-transfer") {
+    const result = await sdk.policies.verifyTransfer({
+      template: parsePolicyTemplateInput() as any,
+      currentArtifactPath: requireArg("current-artifact"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: getArg("current-state-value") ? JSON.parse(getArg("current-state-value")!) : undefined,
+      transferDescriptorValue: getArg("transfer-value") ? JSON.parse(getArg("transfer-value")!) : undefined,
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: getArg("next-state-value") ? JSON.parse(getArg("next-state-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        ok: result.ok,
+        reason: result.reason,
+        enforcement: result.verificationReport.enforcement,
+        propagationMode: result.verificationReport.propagationMode,
+        plainExitAllowed: result.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.verificationReport.nextPolicyPresent,
+        outputBinding: result.verificationReport.outputBinding ?? null,
+      },
+      summaryText: formatPolicyVerificationSummary({
+        ok: result.ok,
+        reason: result.reason,
+        propagationMode: result.verificationReport.propagationMode,
+        enforcement: result.verificationReport.enforcement,
+        plainExitAllowed: result.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.verificationReport.nextPolicyPresent,
+        outputBinding: result.verificationReport.outputBinding,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "inspect-transfer") {
+    const result = await sdk.policies.inspectTransfer({
+      currentArtifactPath: requireArg("current-artifact"),
+      template: parsePolicyTemplateInput() as any,
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: getArg("current-state-value") ? JSON.parse(getArg("current-state-value")!) : undefined,
+      nextReceiver: parsePolicyReceiver("next") as any,
+      nextAmountSat: Number(requireArg("next-amount-sat")),
+      nextParams: parseAssignments(getMultiArgs("next-param")) as any,
+      propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+      nextArtifactPath: getArg("next-artifact"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      nextOutputForm: parsePolicyOutputForm() as any,
+      nextRawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: (getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined),
+    });
+    const inspectOutputBinding = (
+      result.prepared.verificationReport as {
+        outputBinding?: Parameters<typeof formatPolicyInspectOrExecuteSummary>[0]["outputBinding"];
+      }
+    ).outputBinding;
+    printJson({
+      summary: {
+        mode: result.mode,
+        enforcement: result.prepared.verificationReport.enforcement,
+        propagationMode: result.prepared.verificationReport.propagationMode,
+        plainExitAllowed: result.prepared.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.prepared.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.prepared.verificationReport.nextPolicyPresent,
+        outputBinding: inspectOutputBinding ?? null,
+        summaryHash: result.inspect.summaryHash,
+      },
+      summaryText: formatPolicyInspectOrExecuteSummary({
+        mode: result.mode,
+        propagationMode: result.prepared.verificationReport.propagationMode,
+        enforcement: result.prepared.verificationReport.enforcement,
+        plainExitAllowed: result.prepared.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.prepared.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.prepared.verificationReport.nextPolicyPresent,
+        outputBinding: inspectOutputBinding,
+        summaryHash: result.inspect.summaryHash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "execute-transfer") {
+    const result = await sdk.policies.executeTransfer({
+      currentArtifactPath: requireArg("current-artifact"),
+      template: parsePolicyTemplateInput() as any,
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: getArg("current-state-value") ? JSON.parse(getArg("current-state-value")!) : undefined,
+      nextReceiver: parsePolicyReceiver("next") as any,
+      nextAmountSat: Number(requireArg("next-amount-sat")),
+      nextParams: parseAssignments(getMultiArgs("next-param")) as any,
+      propagationMode: (getArg("propagation-mode") as "required" | "optional" | "none" | undefined),
+      nextArtifactPath: getArg("next-artifact"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      nextOutputForm: parsePolicyOutputForm() as any,
+      nextRawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      broadcast: hasFlag("broadcast"),
+      utxoPolicy: (getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined),
+    });
+    const executeOutputBinding = (
+      result.prepared.verificationReport as {
+        outputBinding?: Parameters<typeof formatPolicyInspectOrExecuteSummary>[0]["outputBinding"];
+      }
+    ).outputBinding;
+    printJson({
+      summary: {
+        mode: result.mode,
+        enforcement: result.prepared.verificationReport.enforcement,
+        propagationMode: result.prepared.verificationReport.propagationMode,
+        plainExitAllowed: result.prepared.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.prepared.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.prepared.verificationReport.nextPolicyPresent,
+        outputBinding: executeOutputBinding ?? null,
+        summaryHash: result.execution.summaryHash,
+        txId: result.execution.txId ?? null,
+        broadcasted: result.execution.broadcasted,
+      },
+      summaryText: formatPolicyInspectOrExecuteSummary({
+        mode: result.mode,
+        propagationMode: result.prepared.verificationReport.propagationMode,
+        enforcement: result.prepared.verificationReport.enforcement,
+        plainExitAllowed: result.prepared.verificationReport.plainExitAllowed,
+        nextPolicyRequired: result.prepared.verificationReport.nextPolicyRequired,
+        nextPolicyPresent: result.prepared.verificationReport.nextPolicyPresent,
+        outputBinding: executeOutputBinding,
+        summaryHash: result.execution.summaryHash,
+        txId: result.execution.txId,
+        broadcasted: result.execution.broadcasted,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "policy" && subcommand === "export-evidence") {
+    const result = await sdk.policies.exportEvidence({
+      artifactPath: requireArg("artifact"),
+      template: parsePolicyTemplateInput() as any,
+      statePath: getArg("state-json"),
+      stateValue: getArg("state-value") ? JSON.parse(getArg("state-value")!) : undefined,
+      transferDescriptorValue: getArg("transfer-value") ? JSON.parse(getArg("transfer-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        templateHash: result.template.hash,
+        stateHash: result.state.hash,
+        transferHash: result.transfer?.hash ?? null,
+        enforcement: result.report.enforcement,
+        outputBinding: result.report.outputBinding ?? null,
+        sourceVerificationMode: result.sourceVerificationMode,
+      },
+      summaryText: formatPolicyEvidenceSummary({
+        templateHash: result.template.hash,
+        stateHash: result.state.hash,
+        transferHash: result.transfer?.hash ?? null,
+        enforcement: result.report.enforcement,
+        outputBinding: result.report.outputBinding ?? null,
+        sourceVerificationMode: result.sourceVerificationMode,
+      }),
+      ...result,
+    });
+    return;
+  }
+
   if (command === "presets" && subcommand === "list") {
     printJson(listPresets().map((preset) => describePreset(preset)));
     return;
@@ -691,117 +1912,270 @@ async function main(): Promise<void> {
   }
 
   if (command === "bond" && subcommand === "define") {
-    const result = await sdk.bonds.defineBond({
+    const result = await sdk.bonds.define({
       definitionPath: getArg("definition-json"),
       issuancePath: getArg("issuance-json"),
-      simfPath: getArg("simf"),
-      artifactPath: getArg("artifact"),
-    });
-    printJson({ artifact: result.artifact, deployment: result.deployment() });
-    return;
-  }
-
-  if (command === "bond" && subcommand === "verify") {
-    const result = await sdk.bonds.verifyBond({
-      artifactPath: requireArg("artifact"),
-      definitionPath: getArg("definition-json"),
-      issuancePath: getArg("issuance-json"),
-    });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "redeem") {
-    const preview = await sdk.bonds.buildBondRedemption({
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      amount: Number(requireArg("amount")),
-      redeemedAt: requireArg("redeemed-at"),
-    });
-    const nextIssuanceOut = getArg("next-issuance-out");
-    if (nextIssuanceOut) {
-      const resolved = path.resolve(nextIssuanceOut);
-      await mkdir(path.dirname(resolved), { recursive: true });
-      await writeFile(`${resolved}`, `${JSON.stringify(preview.next, null, 2)}\n`, "utf8");
-    }
-    const result = await sdk.bonds.redeemBond({
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      amount: Number(requireArg("amount")),
-      redeemedAt: requireArg("redeemed-at"),
       simfPath: getArg("simf"),
       artifactPath: getArg("artifact"),
     });
     printJson({
       artifact: result.artifact,
       deployment: result.deployment(),
-      previousHash: preview.previousHash,
-      nextHash: preview.nextHash,
-      transition: preview.transition,
-      nextIssuanceState: preview.next,
-      nextIssuanceOut: nextIssuanceOut ? path.resolve(nextIssuanceOut) : undefined,
+      summary: {
+        artifactPath: getArg("artifact") ? path.resolve(getArg("artifact")!) : undefined,
+        contractAddress: result.artifact.compiled.contractAddress,
+        cmr: result.artifact.compiled.cmr,
+        definitionHash: result.artifact.definition?.hash,
+        issuanceHash: result.artifact.state?.hash,
+      },
+      summaryText: formatBondDefinitionOrVerificationSummary({
+        artifactPath: getArg("artifact") ? path.resolve(getArg("artifact")!) : undefined,
+        contractAddress: result.artifact.compiled.contractAddress,
+        cmr: result.artifact.compiled.cmr,
+        definitionHash: result.artifact.definition?.hash,
+        issuanceHash: result.artifact.state?.hash,
+      }),
     });
     return;
   }
 
-  if (command === "bond" && subcommand === "verify-transition") {
-    const result = await sdk.bonds.verifyBondTransition({
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-    });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "compile-transition") {
-    const result = await sdk.bonds.compileBondTransition({
+  if (command === "bond" && subcommand === "issue") {
+    const result = await sdk.bonds.issue({
       definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
+      issuancePath: getArg("issuance-json"),
       simfPath: getArg("simf"),
       artifactPath: getArg("artifact"),
     });
     printJson({
-      artifact: result.compiled.artifact,
-      deployment: result.compiled.deployment(),
-      previousHash: result.previousHash,
-      nextHash: result.nextHash,
-      transition: result.transition,
-      payload: result.payload,
+      artifact: result.artifact,
+      deployment: result.deployment(),
+      summary: {
+        artifactPath: getArg("artifact") ? path.resolve(getArg("artifact")!) : undefined,
+        contractAddress: result.artifact.compiled.contractAddress,
+        cmr: result.artifact.compiled.cmr,
+        definitionHash: result.artifact.definition?.hash,
+        issuanceHash: result.artifact.state?.hash,
+      },
+      summaryText: formatBondDefinitionOrVerificationSummary({
+        artifactPath: getArg("artifact") ? path.resolve(getArg("artifact")!) : undefined,
+        contractAddress: result.artifact.compiled.contractAddress,
+        cmr: result.artifact.compiled.cmr,
+        definitionHash: result.artifact.definition?.hash,
+        issuanceHash: result.artifact.state?.hash,
+      }),
     });
     return;
   }
 
-  if (command === "bond" && subcommand === "compile-redemption-machine") {
-    const result = await sdk.bonds.compileBondRedemptionMachine({
+  if (command === "bond" && subcommand === "verify") {
+    const result = await sdk.bonds.verify({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      issuancePath: getArg("issuance-json"),
+    });
+    printJson({
+      ...result,
+      summary: {
+        artifactPath: path.resolve(requireArg("artifact")),
+        contractAddress: result.artifact.compiled.contractAddress,
+        cmr: result.artifact.compiled.cmr,
+        definitionHash: result.definition.definition.hash,
+        issuanceHash: result.issuance.state.hash,
+        definitionOk: result.definition.ok,
+        issuanceOk: result.issuance.ok,
+        principalInvariantValid: result.crossChecks.principalInvariantValid,
+        definitionTrustMode: result.definition.trust.effectiveMode,
+        issuanceTrustMode: result.issuance.trust.effectiveMode,
+      },
+      summaryText: formatBondDefinitionOrVerificationSummary({
+        artifactPath: path.resolve(requireArg("artifact")),
+        contractAddress: result.artifact.compiled.contractAddress,
+        cmr: result.artifact.compiled.cmr,
+        definitionHash: result.definition.definition.hash,
+        issuanceHash: result.issuance.state.hash,
+        definitionOk: result.definition.ok,
+        issuanceOk: result.issuance.ok,
+        principalInvariantValid: result.crossChecks.principalInvariantValid,
+        definitionTrustMode: result.definition.trust.effectiveMode,
+        issuanceTrustMode: result.issuance.trust.effectiveMode,
+      }),
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "prepare-redemption") {
+    const result = await sdk.bonds.prepareRedemption({
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      amount: Number(requireArg("amount")),
+      redeemedAt: requireArg("redeemed-at"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      nextAmountSat: Number(requireArg("next-amount-sat")),
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+    });
+    const nextIssuanceOut = getArg("next-issuance-out");
+    if (nextIssuanceOut) {
+      const resolved = path.resolve(nextIssuanceOut);
+      await mkdir(path.dirname(resolved), { recursive: true });
+      await writeFile(`${resolved}`, `${JSON.stringify(result.preview.next, null, 2)}\n`, "utf8");
+    }
+    printJson({
+      ...result,
+      nextIssuanceState: result.preview.next,
+      nextIssuanceOut: nextIssuanceOut ? path.resolve(nextIssuanceOut) : undefined,
+      summary: {
+        mode: result.settlement.descriptor.outputBindingMode,
+        nextStatus: result.preview.next.status,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextContractAddress: result.settlement.nextContractAddress,
+        nextAmountSat: result.settlement.nextAmountSat,
+        supportedForm: result.settlement.supportedForm,
+        reasonCode: result.settlement.reasonCode,
+        autoDerived: result.settlement.autoDerivedNextOutputHash,
+        fallbackReason: result.settlement.fallbackReason,
+        nextOutputHash: result.settlement.expectedOutputDescriptor?.nextOutputHash,
+        bindingInputs: result.settlement.bindingInputs ?? null,
+      },
+      summaryText: formatBondRedemptionSummary({
+        phase: "prepare",
+        mode: result.settlement.descriptor.outputBindingMode ?? "none",
+        nextStatus: result.preview.next.status,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextContractAddress: result.settlement.nextContractAddress,
+        nextAmountSat: result.settlement.nextAmountSat,
+        bindingMetadata: {
+          bindingMode: result.settlement.descriptor.outputBindingMode,
+          supportedForm: result.settlement.supportedForm,
+          reasonCode: result.settlement.reasonCode,
+          nextOutputHash: result.settlement.expectedOutputDescriptor?.nextOutputHash,
+          autoDerived: result.settlement.autoDerivedNextOutputHash,
+          fallbackReason: result.settlement.fallbackReason,
+          bindingInputs: result.settlement.bindingInputs,
+        },
+      }),
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "inspect-redemption") {
+    const result = await sdk.bonds.inspectRedemption({
+      currentArtifactPath: requireArg("current-artifact"),
       definitionPath: getArg("definition-json"),
       previousIssuancePath: getArg("previous-issuance-json"),
       nextIssuancePath: getArg("next-issuance-json"),
       nextStateSimfPath: getArg("next-state-simf"),
+      machineSimfPath: getArg("machine-simf"),
+      machineArtifactPath: getArg("machine-artifact"),
       nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
       maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
-      simfPath: getArg("simf"),
-      artifactPath: getArg("artifact"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
     });
     printJson({
-      artifact: result.compiled.artifact,
-      deployment: result.compiled.deployment(),
-      previousHash: result.previousHash,
-      nextHash: result.nextHash,
-      redeemAmount: result.redeemAmount,
-      transitionKind: result.transitionKind,
-      nextStateContractAddress: result.nextStateContractAddress,
-      nextStateContractAddressHash: result.nextStateContractAddressHash,
-      settlementDescriptor: result.settlementDescriptor,
-      settlementDescriptorHash: result.settlementDescriptorHash,
-      transition: result.transition,
-      payload: result.payload,
+      ...result,
+      summary: {
+        mode: result.mode,
+        nextStatus: result.settlement.descriptor.nextStatus,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextContractAddress: result.plan.nextContractAddress,
+        nextAmountSat: result.settlement.nextAmountSat,
+        summaryHash: result.inspect.summaryHash,
+      },
+      summaryText: formatBondRedemptionSummary({
+        phase: "inspect",
+        mode: result.mode,
+        nextStatus: result.settlement.descriptor.nextStatus,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextContractAddress: result.plan.nextContractAddress,
+        nextAmountSat: result.settlement.nextAmountSat,
+        summaryHash: result.inspect.summaryHash,
+        bindingMetadata: {
+          bindingMode: result.settlement.descriptor.outputBindingMode,
+          supportedForm: result.settlement.supportedForm,
+          reasonCode: result.settlement.reasonCode,
+          nextOutputHash: result.settlement.expectedOutputDescriptor?.nextOutputHash,
+          autoDerived: result.settlement.autoDerivedNextOutputHash,
+          fallbackReason: result.settlement.fallbackReason,
+          bindingInputs: result.settlement.bindingInputs,
+        },
+      }),
     });
     return;
   }
 
-  if (command === "bond" && subcommand === "verify-machine") {
-    const result = await sdk.bonds.verifyBondRedemptionMachineArtifact({
+  if (command === "bond" && subcommand === "execute-redemption") {
+    const result = await sdk.bonds.executeRedemption({
+      currentArtifactPath: requireArg("current-artifact"),
+      definitionPath: getArg("definition-json"),
+      previousIssuancePath: getArg("previous-issuance-json"),
+      nextIssuancePath: getArg("next-issuance-json"),
+      nextStateSimfPath: getArg("next-state-simf"),
+      machineSimfPath: getArg("machine-simf"),
+      machineArtifactPath: getArg("machine-artifact"),
+      nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
+      maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      ...result,
+      summary: {
+        mode: result.mode,
+        nextStatus: result.settlement.descriptor.nextStatus,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextContractAddress: result.plan.nextContractAddress,
+        nextAmountSat: result.settlement.nextAmountSat,
+        txId: result.execution.txId ?? null,
+        broadcasted: Boolean(result.execution.txId),
+      },
+      summaryText: formatBondRedemptionSummary({
+        phase: "execute",
+        mode: result.mode,
+        nextStatus: result.settlement.descriptor.nextStatus,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextContractAddress: result.plan.nextContractAddress,
+        nextAmountSat: result.settlement.nextAmountSat,
+        txId: result.execution.txId,
+        broadcasted: Boolean(result.execution.txId),
+        bindingMetadata: {
+          bindingMode: result.settlement.descriptor.outputBindingMode,
+          supportedForm: result.settlement.supportedForm,
+          reasonCode: result.settlement.reasonCode,
+          nextOutputHash: result.settlement.expectedOutputDescriptor?.nextOutputHash,
+          autoDerived: result.settlement.autoDerivedNextOutputHash,
+          fallbackReason: result.settlement.fallbackReason,
+          bindingInputs: result.settlement.bindingInputs,
+        },
+      }),
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "verify-redemption") {
+    const result = await sdk.bonds.verifyRedemption({
       artifactPath: requireArg("artifact"),
       definitionPath: getArg("definition-json"),
       previousIssuancePath: getArg("previous-issuance-json"),
@@ -809,220 +2183,364 @@ async function main(): Promise<void> {
       nextStateSimfPath: getArg("next-state-simf"),
       nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
       maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
     });
-    printJson(result);
+    const outputBindingTrust = "outputBindingTrust" in result ? result.outputBindingTrust : undefined;
+    printJson({
+      ...result,
+      summary: {
+        verified: result.verified,
+        mode: result.mode,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextAmountSat: result.settlement.nextAmountSat,
+        supportedForm: result.outputBindingMetadata?.supportedForm ?? null,
+        reasonCode: result.outputBindingMetadata?.reasonCode ?? null,
+        autoDerived: result.outputBindingMetadata?.autoDerived ?? null,
+        fallbackReason: result.outputBindingMetadata?.fallbackReason ?? null,
+        nextOutputHash: result.settlement.expectedOutputDescriptor?.nextOutputHash ?? null,
+        bindingInputs: result.outputBindingMetadata?.bindingInputs ?? null,
+        outputBindingTrust: outputBindingTrust ?? null,
+      },
+      summaryText: formatBondRedemptionSummary({
+        phase: "verify",
+        mode: result.mode,
+        descriptorHash: result.settlement.descriptorHash,
+        nextStateHash: result.settlement.nextStateHash,
+        nextAmountSat: result.settlement.nextAmountSat,
+        verified: result.verified,
+        bindingMetadata: {
+          bindingMode: result.settlement.descriptor.outputBindingMode,
+          supportedForm: result.outputBindingMetadata?.supportedForm,
+          reasonCode: result.outputBindingMetadata?.reasonCode,
+          nextOutputHash: result.settlement.expectedOutputDescriptor?.nextOutputHash,
+          autoDerived: result.outputBindingMetadata?.autoDerived,
+          fallbackReason: result.outputBindingMetadata?.fallbackReason,
+          bindingInputs: result.outputBindingMetadata?.bindingInputs,
+        },
+        outputBindingTrust,
+      }),
+    });
     return;
   }
 
-  if (command === "bond" && subcommand === "settlement-payload") {
-    const result = await sdk.bonds.buildBondSettlementPayload({
+  if (command === "bond" && subcommand === "build-settlement") {
+    const result = await sdk.bonds.buildSettlement({
       definitionPath: getArg("definition-json"),
       previousIssuancePath: getArg("previous-issuance-json"),
       nextIssuancePath: getArg("next-issuance-json"),
       nextStateSimfPath: getArg("next-state-simf"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
       nextAmountSat: Number(requireArg("next-amount-sat")),
       maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: (getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined),
     });
-    printJson(result);
+    printJson({
+      ...result,
+      summary: {
+        descriptorHash: result.descriptorHash,
+        bindingMode: result.descriptor.outputBindingMode,
+        previousStateHash: result.previousStateHash,
+        nextStateHash: result.nextStateHash,
+        nextContractAddress: result.nextContractAddress,
+        nextAmountSat: result.nextAmountSat,
+        maxFeeSat: result.maxFeeSat,
+        supportedForm: result.supportedForm,
+        reasonCode: result.reasonCode,
+        autoDerived: result.autoDerivedNextOutputHash,
+        fallbackReason: result.fallbackReason,
+        nextOutputHash: result.expectedOutputDescriptor?.nextOutputHash,
+        bindingInputs: result.bindingInputs ?? null,
+      },
+      summaryText: formatBondSettlementSummary({
+        descriptorHash: result.descriptorHash,
+        bindingMode: result.descriptor.outputBindingMode ?? "none",
+        previousStateHash: result.previousStateHash,
+        nextStateHash: result.nextStateHash,
+        nextContractAddress: result.nextContractAddress,
+        nextAmountSat: result.nextAmountSat,
+        maxFeeSat: result.maxFeeSat,
+        supportedForm: result.supportedForm,
+        reasonCode: result.reasonCode,
+        autoDerived: result.autoDerivedNextOutputHash,
+        fallbackReason: result.fallbackReason,
+        nextOutputHash: result.expectedOutputDescriptor?.nextOutputHash,
+        bindingInputs: result.bindingInputs ?? undefined,
+      }),
+    });
     return;
   }
 
   if (command === "bond" && subcommand === "verify-settlement") {
-    const result = await sdk.bonds.verifyBondSettlementDescriptor({
+    const result = await sdk.bonds.verifySettlement({
       descriptorPath: getArg("descriptor-json"),
       definitionPath: getArg("definition-json"),
       previousIssuancePath: getArg("previous-issuance-json"),
       nextIssuancePath: getArg("next-issuance-json"),
       nextStateSimfPath: getArg("next-state-simf"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
       nextAmountSat: getArg("next-amount-sat") ? Number(getArg("next-amount-sat")) : undefined,
       maxFeeSat: getArg("max-fee-sat") ? Number(getArg("max-fee-sat")) : undefined,
-    });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "plan-rollover") {
-    const result = await sdk.bonds.buildBondRolloverPlan({
-      currentArtifactPath: requireArg("current-artifact"),
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextSimfPath: getArg("next-simf"),
-      nextArtifactPath: getArg("next-artifact"),
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
     });
     printJson({
-      currentArtifact: result.currentArtifact,
-      nextArtifact: result.nextCompiled.artifact,
-      nextDeployment: result.nextCompiled.deployment(),
-      nextContractAddress: result.nextContractAddress,
-      transitionPayload: result.transitionPayload,
+      ...result,
+      summary: {
+        ok: result.ok,
+        reason: result.reason,
+        descriptorHash: result.hash,
+        bindingMode: result.descriptor.outputBindingMode,
+        previousStateHash: result.descriptor.previousStateHash,
+        nextStateHash: result.descriptor.nextStateHash,
+        nextContractAddress: result.descriptor.nextContractAddress,
+        nextAmountSat: result.descriptor.nextAmountSat,
+        maxFeeSat: result.descriptor.maxFeeSat,
+        supportedForm: result.supportedForm,
+        reasonCode: result.reasonCode,
+        autoDerived: result.autoDerivedNextOutputHash,
+        fallbackReason: result.fallbackReason,
+        bindingInputs: result.bindingInputs ?? null,
+      },
+      summaryText: formatBondSettlementSummary({
+        ok: result.ok,
+        reason: result.reason,
+        descriptorHash: result.hash,
+        bindingMode: result.descriptor.outputBindingMode ?? "none",
+        previousStateHash: result.descriptor.previousStateHash,
+        nextStateHash: result.descriptor.nextStateHash,
+        nextContractAddress: result.descriptor.nextContractAddress,
+        nextAmountSat: result.descriptor.nextAmountSat,
+        maxFeeSat: result.descriptor.maxFeeSat,
+        supportedForm: result.supportedForm,
+        reasonCode: result.reasonCode,
+        autoDerived: result.autoDerivedNextOutputHash,
+        fallbackReason: result.fallbackReason,
+        bindingInputs: result.bindingInputs ?? undefined,
+      }),
     });
     return;
   }
 
-  if (command === "bond" && subcommand === "plan-machine-rollover") {
-    const result = await sdk.bonds.buildBondMachineRolloverPlan({
-      currentArtifactPath: requireArg("current-artifact"),
+  if (command === "bond" && subcommand === "prepare-closing") {
+    const result = await sdk.bonds.prepareClosing({
       definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextStateSimfPath: getArg("next-state-simf"),
-      machineSimfPath: getArg("machine-simf"),
-      machineArtifactPath: getArg("machine-artifact"),
+      redeemedIssuancePath: getArg("redeemed-issuance-json"),
+      settlementDescriptorPath: getArg("settlement-descriptor-json"),
+      closedAt: requireArg("closed-at"),
+      closingReason: getArg("closing-reason") as "REDEEMED" | "CANCELLED" | "MATURED_OUT" | undefined,
     });
     printJson({
-      currentArtifact: result.currentArtifact,
-      machineArtifact: result.machineCompiled.compiled.artifact,
-      machineDeployment: result.machineCompiled.compiled.deployment(),
-      machineVerification: result.machineVerification,
-      nextContractAddress: result.nextContractAddress,
-      transitionPayload: result.transitionPayload,
+      ...result,
+      summary: {
+        closingHash: result.closingHash,
+        closedAt: result.closing.closedAt,
+        closingReason: result.closing.closingReason,
+        finalSettlementDescriptorHash: result.closing.finalSettlementDescriptorHash,
+      },
+      summaryText: formatBondClosingSummary({
+        phase: "prepare",
+        closingHash: result.closingHash,
+        closedAt: result.closing.closedAt,
+        closingReason: result.closing.closingReason,
+        finalSettlementDescriptorHash: result.closing.finalSettlementDescriptorHash,
+      }),
     });
     return;
   }
 
-  if (command === "bond" && subcommand === "inspect-rollover") {
-    const result = await sdk.bonds.inspectBondStateRollover({
+  if (command === "bond" && subcommand === "inspect-closing") {
+    const result = await sdk.bonds.inspectClosing({
       currentArtifactPath: requireArg("current-artifact"),
       definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextSimfPath: getArg("next-simf"),
-      nextArtifactPath: getArg("next-artifact"),
+      redeemedIssuancePath: getArg("redeemed-issuance-json"),
+      settlementDescriptorPath: getArg("settlement-descriptor-json"),
+      closedIssuanceSimfPath: getArg("closed-issuance-simf"),
+      closingArtifactPath: getArg("closing-artifact"),
+      closedAt: requireArg("closed-at"),
+      closingReason: getArg("closing-reason") as "REDEEMED" | "CANCELLED" | "MATURED_OUT" | undefined,
       wallet: requireArg("wallet"),
       signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
       feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
       utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
     });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "inspect-machine-rollover") {
-    const result = await sdk.bonds.inspectBondMachineRollover({
-      currentArtifactPath: requireArg("current-artifact"),
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      machineSimfPath: getArg("machine-simf"),
-      machineArtifactPath: getArg("machine-artifact"),
-      wallet: requireArg("wallet"),
-      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
-      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
-      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    printJson({
+      ...result,
+      summary: {
+        closingHash: result.plan.closingHash,
+        closedAt: result.plan.closingDescriptor.closedAt,
+        closingReason: result.plan.closingDescriptor.closingReason,
+        finalSettlementDescriptorHash: result.plan.closingDescriptor.finalSettlementDescriptorHash,
+        summaryHash: result.inspect.summaryHash,
+      },
+      summaryText: formatBondClosingSummary({
+        phase: "inspect",
+        closingHash: result.plan.closingHash,
+        closedAt: result.plan.closingDescriptor.closedAt,
+        closingReason: result.plan.closingDescriptor.closingReason,
+        finalSettlementDescriptorHash: result.plan.closingDescriptor.finalSettlementDescriptorHash,
+        summaryHash: result.inspect.summaryHash,
+      }),
     });
-    printJson(result);
     return;
   }
 
-  if (command === "bond" && subcommand === "execute-rollover") {
-    const result = await sdk.bonds.executeBondStateRollover({
+  if (command === "bond" && subcommand === "execute-closing") {
+    const result = await sdk.bonds.executeClosing({
       currentArtifactPath: requireArg("current-artifact"),
       definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextSimfPath: getArg("next-simf"),
-      nextArtifactPath: getArg("next-artifact"),
+      redeemedIssuancePath: getArg("redeemed-issuance-json"),
+      settlementDescriptorPath: getArg("settlement-descriptor-json"),
+      closedIssuanceSimfPath: getArg("closed-issuance-simf"),
+      closingArtifactPath: getArg("closing-artifact"),
+      closedAt: requireArg("closed-at"),
+      closingReason: getArg("closing-reason") as "REDEEMED" | "CANCELLED" | "MATURED_OUT" | undefined,
       wallet: requireArg("wallet"),
       signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
       feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
       utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
       broadcast: hasFlag("broadcast"),
     });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "execute-machine-rollover") {
-    const result = await sdk.bonds.executeBondMachineRollover({
-      currentArtifactPath: requireArg("current-artifact"),
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      machineSimfPath: getArg("machine-simf"),
-      machineArtifactPath: getArg("machine-artifact"),
-      wallet: requireArg("wallet"),
-      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
-      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
-      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
-      broadcast: hasFlag("broadcast"),
+    printJson({
+      ...result,
+      summary: {
+        closingHash: result.plan.closingHash,
+        closedAt: result.plan.closingDescriptor.closedAt,
+        closingReason: result.plan.closingDescriptor.closingReason,
+        finalSettlementDescriptorHash: result.plan.closingDescriptor.finalSettlementDescriptorHash,
+        txId: result.execution.txId ?? null,
+        broadcasted: Boolean(result.execution.txId),
+      },
+      summaryText: formatBondClosingSummary({
+        phase: "execute",
+        closingHash: result.plan.closingHash,
+        closedAt: result.plan.closingDescriptor.closedAt,
+        closingReason: result.plan.closingDescriptor.closingReason,
+        finalSettlementDescriptorHash: result.plan.closingDescriptor.finalSettlementDescriptorHash,
+        txId: result.execution.txId,
+        broadcasted: Boolean(result.execution.txId),
+      }),
     });
-    printJson(result);
     return;
   }
 
-  if (command === "bond" && subcommand === "plan-machine-settlement") {
-    const result = await sdk.bonds.buildBondMachineSettlementPlan({
-      currentMachineArtifactPath: requireArg("current-machine-artifact"),
+  if (command === "bond" && subcommand === "verify-closing") {
+    const closedIssuancePath = getArg("closed-issuance-json");
+    const closedIssuanceValue = getArg("closed-issuance-value")
+      ? JSON.parse(getArg("closed-issuance-value")!)
+      : undefined;
+    const closingDescriptorValue = getArg("closing-descriptor-value")
+      ? JSON.parse(getArg("closing-descriptor-value")!)
+      : undefined;
+    const result = await sdk.bonds.verifyClosing({
       definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextSimfPath: getArg("next-simf"),
-      nextArtifactPath: getArg("next-artifact"),
+      redeemedIssuancePath: getArg("redeemed-issuance-json"),
+      closedIssuancePath,
+      closedIssuanceValue,
+      settlementDescriptorPath: getArg("settlement-descriptor-json"),
+      closingDescriptorValue,
     });
     printJson({
-      currentMachineArtifact: result.currentMachineArtifact,
-      machineVerification: result.machineVerification,
-      nextArtifact: result.nextCompiled.artifact,
-      nextDeployment: result.nextCompiled.deployment(),
-      nextContractAddress: result.nextContractAddress,
-      transitionPayload: result.transitionPayload,
+      ...result,
+      summary: {
+        verified: result.verified,
+        closedAt: result.closed.closedAt,
+        closingReason: result.closed.closingReason,
+        finalSettlementDescriptorHash: result.closed.finalSettlementDescriptorHash,
+        checks: result.checks,
+      },
+      summaryText: formatBondClosingSummary({
+        phase: "verify",
+        verified: result.verified,
+        closedAt: result.closed.closedAt,
+        closingReason: result.closed.closingReason,
+        finalSettlementDescriptorHash: result.closed.finalSettlementDescriptorHash,
+        checks: result.checks,
+      }),
     });
     return;
   }
 
-  if (command === "bond" && subcommand === "inspect-machine-settlement") {
-    const result = await sdk.bonds.inspectBondMachineSettlement({
-      currentMachineArtifactPath: requireArg("current-machine-artifact"),
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextSimfPath: getArg("next-simf"),
-      nextArtifactPath: getArg("next-artifact"),
-      wallet: requireArg("wallet"),
-      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
-      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
-      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
-    });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "execute-machine-settlement") {
-    const result = await sdk.bonds.executeBondMachineSettlement({
-      currentMachineArtifactPath: requireArg("current-machine-artifact"),
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-      nextSimfPath: getArg("next-simf"),
-      nextArtifactPath: getArg("next-artifact"),
-      wallet: requireArg("wallet"),
-      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
-      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
-      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
-      broadcast: hasFlag("broadcast"),
-    });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "transition-payload") {
-    const result = await sdk.bonds.buildBondTransitionPayload({
-      definitionPath: getArg("definition-json"),
-      previousIssuancePath: getArg("previous-issuance-json"),
-      nextIssuancePath: getArg("next-issuance-json"),
-    });
-    printJson(result);
-    return;
-  }
-
-  if (command === "bond" && subcommand === "payload") {
-    const result = await sdk.bonds.buildBondPayload({
+  if (command === "bond" && subcommand === "export-evidence") {
+    const settlementDescriptorValue = getArg("settlement-descriptor-value")
+      ? JSON.parse(getArg("settlement-descriptor-value")!)
+      : undefined;
+    const transitionValue = getArg("transition-value")
+      ? JSON.parse(getArg("transition-value")!)
+      : undefined;
+    const result = await sdk.bonds.exportEvidence({
       artifactPath: requireArg("artifact"),
       definitionPath: getArg("definition-json"),
       issuancePath: getArg("issuance-json"),
+      settlementDescriptorValue,
+      transitionValue,
     });
-    printJson(result);
+    printJson({
+      ...result,
+      summary: {
+        definitionHash: result.definition.hash,
+        issuanceHash: result.issuance.hash,
+        settlementHash: result.settlement?.hash ?? null,
+        closingHash: result.closing?.hash ?? null,
+        renderedSourceHash: result.renderedSourceHash ?? null,
+        sourceVerificationMode: result.sourceVerificationMode,
+      },
+      summaryText: formatBondEvidenceSummary({
+        definitionHash: result.definition.hash,
+        issuanceHash: result.issuance.hash,
+        settlementHash: result.settlement?.hash ?? null,
+        closingHash: result.closing?.hash ?? null,
+        renderedSourceHash: result.renderedSourceHash ?? null,
+        sourceVerificationMode: result.sourceVerificationMode,
+      }),
+    });
+    return;
+  }
+
+  if (command === "bond" && subcommand === "export-finality-payload") {
+    const settlementDescriptorValue = getArg("settlement-descriptor-value")
+      ? JSON.parse(getArg("settlement-descriptor-value")!)
+      : undefined;
+    const closingDescriptorValue = getArg("closing-descriptor-value")
+      ? JSON.parse(getArg("closing-descriptor-value")!)
+      : undefined;
+    const result = await sdk.bonds.exportFinalityPayload({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      issuancePath: getArg("issuance-json"),
+      settlementDescriptorValue,
+      closingDescriptorValue,
+    });
+    printJson({
+      ...result,
+      summary: {
+        bondId: result.payload.bondId,
+        issuanceId: result.payload.issuanceId,
+        definitionHash: result.payload.definitionHash,
+        issuanceStateHash: result.payload.issuanceStateHash,
+        settlementDescriptorHash: result.evidenceSummary.settlementHash,
+        closingDescriptorHash: result.evidenceSummary.closingHash,
+        contractAddress: result.payload.contractAddress,
+        cmr: result.payload.cmr,
+        bindingMode: result.bindingMode,
+      },
+      summaryText: formatBondFinalityPayloadSummary({
+        bondId: result.payload.bondId,
+        issuanceId: result.payload.issuanceId,
+        definitionHash: result.payload.definitionHash,
+        issuanceStateHash: result.payload.issuanceStateHash,
+        settlementDescriptorHash: result.evidenceSummary.settlementHash,
+        closingDescriptorHash: result.evidenceSummary.closingHash,
+        contractAddress: result.payload.contractAddress,
+        cmr: result.payload.cmr,
+        bindingMode: result.bindingMode,
+      }),
+    });
     return;
   }
 

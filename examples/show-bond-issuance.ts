@@ -5,7 +5,7 @@ async function main() {
   const artifactPath = resolveExamplePath("bond-issuance.artifact.json", "BOND_ARTIFACT");
   const definitionPath = resolveExamplePath("docs/definitions/bond-definition.json", "BOND_DEFINITION_JSON");
   const issuancePath = resolveExamplePath("docs/definitions/bond-issuance-state.json", "BOND_ISSUANCE_JSON");
-  const loaded = await sdk.bonds.loadBond({
+  const loaded = await sdk.bonds.load({
     artifactPath,
     definitionPath,
     issuancePath,

@@ -1,8 +1,9 @@
-import { createSdkFromEnv, resolveExamplePath } from "./shared";
+import { buildBondRolloverPlan } from "../../../../src/internal/experimental/bond";
+import { createExampleClient, resolveExamplePath } from "../../../shared";
 
 async function main() {
-  const sdk = createSdkFromEnv();
-  const result = await sdk.bonds.buildBondRolloverPlan({
+  const sdk = createExampleClient();
+  const result = await buildBondRolloverPlan(sdk, {
     currentArtifactPath: resolveExamplePath("bond-issuance.artifact.json", "BOND_CURRENT_ARTIFACT"),
     definitionPath: resolveExamplePath("docs/definitions/bond-definition.json", "BOND_DEFINITION_JSON"),
     previousIssuancePath: resolveExamplePath("docs/definitions/bond-issuance-state.json", "BOND_PREVIOUS_ISSUANCE_JSON"),
@@ -14,11 +15,17 @@ async function main() {
     nextArtifactPath: process.env.BOND_NEXT_ARTIFACT,
   });
 
-  console.log(JSON.stringify({
-    currentContractAddress: result.currentArtifact.compiled.contractAddress,
-    nextContractAddress: result.nextContractAddress,
-    transitionPayload: result.transitionPayload,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        currentContractAddress: result.currentArtifact.compiled.contractAddress,
+        nextContractAddress: result.nextContractAddress,
+        transitionPayload: result.transitionPayload,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 main().catch((error) => {

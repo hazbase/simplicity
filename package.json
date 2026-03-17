@@ -36,6 +36,11 @@
     "build": "tsc && node scripts/copy-presets.mjs",
     "start": "node dist/cli.js",
     "test": "npm run build && node --test dist/test",
+    "e2e:policy-local": "npm run build && node scripts/e2e-policy-local.mjs",
+    "e2e:policy-testnet": "npm run build && node scripts/e2e-policy-testnet.mjs",
+    "e2e:policy-consumer": "npm run build && node scripts/e2e-policy-consumer.mjs",
+    "e2e:bond-testnet": "npm run build && node scripts/e2e-bond-testnet.mjs",
+    "e2e:bond-consumer": "npm run build && node scripts/e2e-bond-consumer.mjs",
     "e2e:simplicity-relayer": "npm run build && node scripts/e2e-simplicity-relayer.mjs",
     "prepublishOnly": "npm run build"
   },

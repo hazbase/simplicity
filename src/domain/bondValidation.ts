@@ -20,8 +20,8 @@ function assertFiniteNumber(value: unknown, code: string, message: string): void
 }
 
 function assertValidStatus(status: unknown): asserts status is BondIssuanceStatus {
-  if (status !== "ISSUED" && status !== "PARTIALLY_REDEEMED" && status !== "REDEEMED") {
-    throw new ValidationError("status must be ISSUED, PARTIALLY_REDEEMED, or REDEEMED", {
+  if (status !== "ISSUED" && status !== "PARTIALLY_REDEEMED" && status !== "REDEEMED" && status !== "CLOSED") {
+    throw new ValidationError("status must be ISSUED, PARTIALLY_REDEEMED, REDEEMED, or CLOSED", {
       code: "BOND_STATUS_INVALID",
     });
   }
@@ -206,6 +206,42 @@ export function validateBondIssuanceState(value: unknown): BondIssuanceState {
       });
     }
   }
+  if (issuance.status === "CLOSED") {
+    if (issuance.outstandingPrincipal !== 0 || issuance.redeemedPrincipal !== issuance.issuedPrincipal) {
+      throw new ValidationError("CLOSED state must have zero outstanding principal and full redeemed principal", {
+        code: "BOND_STATUS_TRANSITION_INVALID",
+      });
+    }
+    if (!issuance.previousStateHash) {
+      throw new ValidationError("CLOSED state must set previousStateHash", {
+        code: "BOND_PREVIOUS_STATE_HASH_INVALID",
+      });
+    }
+    if (!issuance.closedAt || Number.isNaN(Date.parse(issuance.closedAt))) {
+      throw new ValidationError("CLOSED state must set closedAt as an ISO8601 string", {
+        code: "BOND_CLOSED_AT_INVALID",
+      });
+    }
+    if (
+      issuance.closingReason !== "REDEEMED"
+      && issuance.closingReason !== "CANCELLED"
+      && issuance.closingReason !== "MATURED_OUT"
+    ) {
+      throw new ValidationError("CLOSED state must set a valid closingReason", {
+        code: "BOND_CLOSING_REASON_INVALID",
+      });
+    }
+    if (!issuance.finalSettlementDescriptorHash || !/^[0-9a-f]{64}$/i.test(issuance.finalSettlementDescriptorHash)) {
+      throw new ValidationError("CLOSED state must set finalSettlementDescriptorHash as a 64-character hex string", {
+        code: "BOND_FINAL_SETTLEMENT_DESCRIPTOR_HASH_INVALID",
+      });
+    }
+    if (!transition || transition.type !== "REDEEM") {
+      throw new ValidationError("CLOSED state must carry a REDEEM transition", {
+        code: "BOND_TRANSITION_TYPE_INVALID",
+      });
+    }
+  }
   return issuance;
 }
 
@@ -332,7 +368,7 @@ export function validateBondStateTransition(
   result.statusProgressionValid =
     (previous.status === "ISSUED" || previous.status === "PARTIALLY_REDEEMED") &&
     ((next.status === "PARTIALLY_REDEEMED" && next.outstandingPrincipal > 0) ||
-      (next.status === "REDEEMED" && next.outstandingPrincipal === 0));
+      ((next.status === "REDEEMED" || next.status === "CLOSED") && next.outstandingPrincipal === 0));
   if (!result.statusProgressionValid) {
     throw new ValidationError("Bond issuance status progression is invalid", {
       code: "BOND_STATUS_TRANSITION_INVALID",
@@ -383,4 +419,37 @@ export function buildRedeemedBondIssuanceState(input: {
     },
   };
   return validateBondIssuanceState(next);
+}
+
+export function buildClosedBondIssuanceState(input: {
+  previous: BondIssuanceState;
+  closedAt: string;
+  closingReason: "REDEEMED" | "CANCELLED" | "MATURED_OUT";
+  finalSettlementDescriptorHash: string;
+}): BondIssuanceState {
+  const previous = validateBondIssuanceState(input.previous);
+  if (previous.status !== "REDEEMED") {
+    throw new ValidationError("Only a REDEEMED issuance state can be closed", {
+      code: "BOND_CLOSING_PRECONDITION_INVALID",
+    });
+  }
+  assertNonEmptyString(input.closedAt, "BOND_CLOSED_AT_INVALID", "closedAt must be a non-empty string");
+  if (Number.isNaN(Date.parse(input.closedAt))) {
+    throw new ValidationError("closedAt must be an ISO8601 string", {
+      code: "BOND_CLOSED_AT_INVALID",
+    });
+  }
+  if (!/^[0-9a-f]{64}$/i.test(input.finalSettlementDescriptorHash)) {
+    throw new ValidationError("finalSettlementDescriptorHash must be a 64-character hex string", {
+      code: "BOND_FINAL_SETTLEMENT_DESCRIPTOR_HASH_INVALID",
+    });
+  }
+  return validateBondIssuanceState({
+    ...previous,
+    status: "CLOSED",
+    previousStateHash: summarizeBondIssuanceState(previous).hash,
+    closedAt: input.closedAt,
+    closingReason: input.closingReason,
+    finalSettlementDescriptorHash: input.finalSettlementDescriptorHash,
+  });
 }

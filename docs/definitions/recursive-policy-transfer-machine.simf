@@ -1,0 +1,65 @@
+/*
+ * Recursive policy transfer machine.
+ *
+ * This machine is generic for a given current policy state. The next policy hash
+ * and output descriptor commitments are supplied at execution time through witness
+ * values, while the current state still commits the router machine as the only
+ * allowed first hop in required propagation mode.
+ */
+fn not(bit: bool) -> bool {
+    <u1>::into(jet::complement_1(<bool>::into(bit)))
+}
+
+fn require_definition_anchor() {
+    let anchored_definition_hash: u256 = 0x{{DEFINITION_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_definition_hash, zero_hash)));
+}
+
+fn require_state_anchor() {
+    let anchored_state_hash: u256 = 0x{{STATE_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_state_hash, zero_hash)));
+}
+
+fn require_policy_hash_anchor() {
+    let anchored_policy_hash: u256 = 0x{{POLICY_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_policy_hash, zero_hash)));
+}
+
+fn require_next_transition_witness(next_policy_hash: u256, next_output_descriptor_hash: u256) {
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(next_policy_hash, zero_hash)));
+    assert!(not(jet::eq_256(next_output_descriptor_hash, zero_hash)));
+}
+
+fn require_output_shape(expected_next_output_hash: u256, expected_next_output_script_hash: u256, binding_mode: u8) {
+    assert!(jet::eq_32(jet::num_outputs(), 2));
+    assert!(unwrap(jet::output_is_fee(1)));
+    let actual_next_output_hash: u256 = match jet::output_hash(0) {
+        Some(output_hash : u256) => output_hash,
+        None => panic!(),
+    };
+    let actual_next_output_script_hash: u256 = unwrap(jet::output_script_hash(0));
+
+    match jet::eq_8(binding_mode, 0x01) {
+        true => assert!(jet::eq_256(actual_next_output_hash, expected_next_output_hash)),
+        false => assert!(jet::eq_256(actual_next_output_script_hash, expected_next_output_script_hash)),
+    };
+}
+
+fn main() {
+    require_definition_anchor();
+    require_state_anchor();
+    require_policy_hash_anchor();
+    let next_policy_hash: u256 = witness::NEXT_POLICY_HASH;
+    let next_output_descriptor_hash: u256 = witness::NEXT_OUTPUT_DESCRIPTOR_HASH;
+    let expected_next_output_hash: u256 = witness::EXPECTED_NEXT_OUTPUT_HASH;
+    let expected_next_output_script_hash: u256 = witness::EXPECTED_NEXT_OUTPUT_SCRIPT_HASH;
+    let binding_mode: u8 = witness::OUTPUT_BINDING_MODE;
+    require_next_transition_witness(next_policy_hash, next_output_descriptor_hash);
+    require_output_shape(expected_next_output_hash, expected_next_output_script_hash, binding_mode);
+    let signer: Pubkey = 0x{{SIGNER_XONLY}};
+    jet::bip_0340_verify((signer, jet::sig_all_hash()), witness::SIGNER_SIGNATURE)
+}

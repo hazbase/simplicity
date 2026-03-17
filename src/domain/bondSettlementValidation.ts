@@ -80,6 +80,23 @@ export function validateBondSettlementDescriptor(value: unknown): BondSettlement
     "BOND_SETTLEMENT_MAX_FEE_INVALID",
     "maxFeeSat must be a finite number",
   );
+  if (descriptor.expectedOutputDescriptorHash !== undefined && descriptor.expectedOutputDescriptorHash !== null) {
+    assertNonEmptyString(
+      descriptor.expectedOutputDescriptorHash,
+      "BOND_SETTLEMENT_EXPECTED_OUTPUT_DESCRIPTOR_HASH_INVALID",
+      "expectedOutputDescriptorHash must be a non-empty string",
+    );
+  }
+  if (
+    descriptor.outputBindingMode !== undefined
+    && descriptor.outputBindingMode !== "none"
+    && descriptor.outputBindingMode !== "script-bound"
+    && descriptor.outputBindingMode !== "descriptor-bound"
+  ) {
+    throw new ValidationError("outputBindingMode must be none, script-bound, or descriptor-bound", {
+      code: "BOND_SETTLEMENT_OUTPUT_BINDING_MODE_INVALID",
+    });
+  }
   assertFiniteNumber(
     descriptor?.principal?.issued,
     "BOND_SETTLEMENT_PRINCIPAL_INVALID",
@@ -125,6 +142,11 @@ export function validateBondSettlementDescriptor(value: unknown): BondSettlement
       code: "BOND_SETTLEMENT_MAX_FEE_INVALID",
     });
   }
+  if (descriptor.expectedOutputDescriptorHash && !/^[0-9a-f]{64}$/i.test(descriptor.expectedOutputDescriptorHash)) {
+    throw new ValidationError("expectedOutputDescriptorHash must be a 64-character hex string", {
+      code: "BOND_SETTLEMENT_EXPECTED_OUTPUT_DESCRIPTOR_HASH_INVALID",
+    });
+  }
   if (Number.isNaN(Date.parse(descriptor.transitionAt))) {
     throw new ValidationError("transitionAt must be an ISO8601 string", {
       code: "BOND_SETTLEMENT_TRANSITION_AT_INVALID",
@@ -147,6 +169,8 @@ export function validateBondSettlementMatchesExpected(
   assetIdMatch: boolean;
   nextAmountSatMatch: boolean;
   maxFeeSatMatch: boolean;
+  expectedOutputDescriptorHashMatch: boolean;
+  outputBindingModeMatch: boolean;
 } {
   const result = {
     bondIdMatch: actual.bondId === expected.bondId,
@@ -159,6 +183,10 @@ export function validateBondSettlementMatchesExpected(
     assetIdMatch: actual.assetId === expected.assetId,
     nextAmountSatMatch: actual.nextAmountSat === expected.nextAmountSat,
     maxFeeSatMatch: actual.maxFeeSat === expected.maxFeeSat,
+    expectedOutputDescriptorHashMatch:
+      (actual.expectedOutputDescriptorHash ?? null) === (expected.expectedOutputDescriptorHash ?? null),
+    outputBindingModeMatch:
+      (actual.outputBindingMode ?? "none") === (expected.outputBindingMode ?? "none"),
   };
   if (!result.bondIdMatch) {
     throw new ValidationError("Bond settlement bondId does not match expected value", {
@@ -198,6 +226,16 @@ export function validateBondSettlementMatchesExpected(
   if (!result.nextAmountSatMatch || !result.maxFeeSatMatch) {
     throw new ValidationError("Bond settlement amount constraints do not match expected values", {
       code: "BOND_SETTLEMENT_AMOUNT_INVALID",
+    });
+  }
+  if (!result.expectedOutputDescriptorHashMatch) {
+    throw new ValidationError("Bond settlement expectedOutputDescriptorHash does not match expected value", {
+      code: "BOND_SETTLEMENT_EXPECTED_OUTPUT_DESCRIPTOR_HASH_MISMATCH",
+    });
+  }
+  if (!result.outputBindingModeMatch) {
+    throw new ValidationError("Bond settlement outputBindingMode does not match expected value", {
+      code: "BOND_SETTLEMENT_OUTPUT_BINDING_MODE_MISMATCH",
     });
   }
   return result;

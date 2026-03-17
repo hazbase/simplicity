@@ -6,7 +6,7 @@ async function main() {
   const definitionPath = resolveExamplePath("docs/definitions/bond-definition.json", "BOND_DEFINITION_JSON");
   const issuancePath = resolveExamplePath("docs/definitions/bond-issuance-state.json", "BOND_ISSUANCE_JSON");
 
-  const result = await sdk.bonds.verifyBond({
+  const result = await sdk.bonds.verify({
     artifactPath,
     definitionPath,
     issuancePath,
