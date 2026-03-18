@@ -172,7 +172,7 @@ test("different issuance state hashes change program, cmr, and contract address"
   }
 
   const simfPath = path.resolve(
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"
+    "docs/definitions/bond-issuance-anchor.simf"
   );
   const definition = {
     type: "bond",

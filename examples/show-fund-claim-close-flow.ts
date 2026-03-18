@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   buildClaimedCapitalCallState,
@@ -5,10 +6,10 @@ import {
   createSimplicityClient,
   summarizeDistributionDescriptor,
 } from "../src";
-
-const MANAGER_PRIVKEY = "0000000000000000000000000000000000000000000000000000000000000001";
+import { deriveXonlyFromPrivkeyHex, requireEnv } from "./shared";
 
 async function main() {
+  const managerPrivkey = requireEnv("FUND_MANAGER_PRIVKEY");
   const sdk = createSimplicityClient({
     network: "liquidtestnet",
     rpc: {
@@ -25,16 +26,22 @@ async function main() {
   });
 
   const docsRoot = path.resolve(process.cwd(), "docs/definitions");
-  const definitionPath = path.join(docsRoot, "fund-definition.json");
-  const capitalCallPath = path.join(docsRoot, "fund-capital-call-state.json");
+  const definitionValue = {
+    ...JSON.parse(await readFile(path.join(docsRoot, "fund-definition.json"), "utf8")),
+    managerXonly: deriveXonlyFromPrivkeyHex(managerPrivkey),
+  };
+  const capitalCallValue = {
+    ...JSON.parse(await readFile(path.join(docsRoot, "fund-capital-call-state.json"), "utf8")),
+    managerXonly: definitionValue.managerXonly,
+  };
 
   const capitalCall = await sdk.funds.prepareCapitalCall({
-    definitionPath,
-    capitalCallPath,
+    definitionValue,
+    capitalCallValue,
   });
   const verifiedOpen = await sdk.funds.verifyCapitalCall({
     artifact: capitalCall.openCompiled.artifact,
-    definitionPath,
+    definitionValue,
     capitalCallValue: capitalCall.capitalCallValue,
   });
 
@@ -50,14 +57,14 @@ async function main() {
     effectiveAt: claimedAt,
   });
   const signedInitialReceipt = await sdk.funds.signPositionReceipt({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: initialReceipt,
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
     signedAt: claimedAt,
   });
 
   const firstDistribution = await sdk.funds.prepareDistribution({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
     distributionId: "DIST-001",
     assetId: capitalCall.capitalCallValue.currencyAssetId,
@@ -65,15 +72,15 @@ async function main() {
     approvedAt: "2027-03-18T00:00:00Z",
   });
   const afterFirst = await sdk.funds.reconcilePosition({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
     distributionValue: firstDistribution.distributionValue,
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
     signedAt: "2027-03-18T00:00:00Z",
   });
 
   const secondDistribution = await sdk.funds.prepareDistribution({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
     distributionId: "DIST-002",
     assetId: capitalCall.capitalCallValue.currencyAssetId,
@@ -81,15 +88,15 @@ async function main() {
     approvedAt: "2028-03-18T00:00:00Z",
   });
   const afterSecond = await sdk.funds.reconcilePosition({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
     distributionValue: secondDistribution.distributionValue,
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
     signedAt: "2028-03-18T00:00:00Z",
   });
 
   const closing = await sdk.funds.prepareClosing({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
     closingId: "CLOSE-001",
     finalDistributionHashes: [
@@ -99,18 +106,18 @@ async function main() {
     closedAt: "2029-03-18T00:00:00Z",
   });
   const verifiedFinalReceipt = await sdk.funds.verifyPositionReceipt({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
   });
   const verifiedClosing = await sdk.funds.verifyClosing({
-    definitionPath,
+    definitionValue,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
     closingValue: closing.closingValue,
   });
 
   const finality = await sdk.funds.exportFinalityPayload({
     artifact: secondDistribution.compiled.artifact,
-    definitionPath,
+    definitionValue,
     capitalCallValue: claimedCapitalCall,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
     distributionValues: [

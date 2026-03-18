@@ -827,8 +827,8 @@ test("optional propagation can still prepare a machine hop", async (t) => {
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     params: { lockDistanceBlocks: 100 },
     amountSat: 6000,
@@ -841,8 +841,8 @@ test("optional propagation can still prepare a machine hop", async (t) => {
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     currentStateValue: issued.state,
     nextReceiver: {
@@ -874,8 +874,8 @@ test("prepareTransfer creates next constrained output in required mode", async (
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     params: { lockDistanceBlocks: 100 },
     amountSat: 6000,
@@ -888,8 +888,8 @@ test("prepareTransfer creates next constrained output in required mode", async (
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     currentStateValue: issued.state,
     nextReceiver: {
@@ -924,8 +924,8 @@ test("prepareDirectTransfer creates next constrained output in required mode", a
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     params: { lockDistanceBlocks: 100 },
     amountSat: 6000,
@@ -938,8 +938,8 @@ test("prepareDirectTransfer creates next constrained output in required mode", a
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     currentStateValue: issued.state,
     nextReceiver: {
@@ -982,8 +982,8 @@ test("verifyDirectTransfer reports direct-hop enforcement", async (t) => {
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     params: { lockDistanceBlocks: 100 },
     amountSat: 6000,
@@ -996,8 +996,8 @@ test("verifyDirectTransfer reports direct-hop enforcement", async (t) => {
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     currentStateValue: issued.state,
     nextReceiver: {
@@ -1013,8 +1013,8 @@ test("verifyDirectTransfer reports direct-hop enforcement", async (t) => {
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     currentArtifact: issued.compiled.artifact,
     currentStateValue: issued.state,
@@ -1036,8 +1036,8 @@ test("verifyTransfer includes descriptor-bound hash details", async (t) => {
   const template = {
     templateId: "recursive-delay",
     value: { policyTemplateId: "recursive-delay" },
-    stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-    directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+    stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+    directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
   };
   const issued = await issue(sdk, {
     recipient: {
@@ -1091,8 +1091,8 @@ test("verifyTransfer includes raw-output-v1 hash details", async (t) => {
   const template = {
     templateId: "recursive-delay",
     value: { policyTemplateId: "recursive-delay" },
-    stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-    directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+    stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+    directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
   };
   const issued = await issue(sdk, {
     recipient: {
@@ -1150,8 +1150,8 @@ test("exportEvidence carries transfer-aware verification report", async (t) => {
   const template = {
     templateId: "recursive-delay",
     value: { policyTemplateId: "recursive-delay" },
-    stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-    directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+    stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+    directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
   };
   const issued = await issue(sdk, {
     recipient: {
@@ -1203,8 +1203,8 @@ test("exportEvidence preserves raw-output-v1 verification metadata", async (t) =
   const template = {
     templateId: "recursive-delay",
     value: { policyTemplateId: "recursive-delay" },
-    stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-    directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+    stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+    directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
   };
   const issued = await issue(sdk, {
     recipient: {
@@ -1258,8 +1258,8 @@ test("required direct path rejects plain exit", async (t) => {
     template: {
       templateId: "recursive-delay",
       value: { policyTemplateId: "recursive-delay" },
-      stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-      directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+      stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+      directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
     },
     params: { lockDistanceBlocks: 100 },
     amountSat: 6000,
@@ -1274,8 +1274,8 @@ test("required direct path rejects plain exit", async (t) => {
         template: {
           templateId: "recursive-delay",
           value: { policyTemplateId: "recursive-delay" },
-          stateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-optional.simf"),
-          directStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/recursive-delay-required.simf"),
+          stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+          directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
         },
         currentStateValue: issued.state,
         nextReceiver: { mode: "plain", address: "ert1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7kz4n" },

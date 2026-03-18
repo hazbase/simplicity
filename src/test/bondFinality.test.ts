@@ -131,9 +131,9 @@ test("descriptor-bound request falls back to script-bound without nextOutputHash
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -157,9 +157,9 @@ test("bond expected output descriptor auto-derives nextOutputHash for explicit d
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -185,9 +185,9 @@ test("bond expected output descriptor keeps descriptor-bound for manual hash on 
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -217,9 +217,9 @@ test("bond expected output descriptor auto-derives nextOutputHash for raw-output
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -249,9 +249,9 @@ test("bond expected output descriptor auto-derives nextOutputHash for hash-backe
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -280,9 +280,9 @@ test("bond expected output descriptor falls back for unsupported output forms wi
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -312,9 +312,9 @@ test("bond expected output descriptor falls back for incomplete raw-output-v1 in
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -342,9 +342,9 @@ test("bond expected output descriptor falls back for mismatched raw-output-v1 ha
   }
   const sdk = createSimplicityClient(TEST_CONFIG);
   const result = await buildExpectedOutputDescriptor(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     feeIndex: 1,
     nextOutputIndex: 0,
@@ -476,10 +476,10 @@ test("compile script-bound settlement machine and verify artifact", async (t) =>
   const artifactPath = path.join(tempDir, "machine.artifact.json");
 
   const compiled = await compileBondScriptBoundSettlementMachine(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    previousIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    previousIssuancePath: path.resolve("docs/definitions/bond-issuance-state.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     maxFeeSat: 100,
     artifactPath,
@@ -490,10 +490,10 @@ test("compile script-bound settlement machine and verify artifact", async (t) =>
 
   const verification = await verifyBondScriptBoundSettlementMachineArtifact(sdk, {
     artifactPath,
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    previousIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    previousIssuancePath: path.resolve("docs/definitions/bond-issuance-state.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     maxFeeSat: 100,
   });
@@ -520,10 +520,10 @@ test("compile descriptor-bound settlement machine and verify artifact", async (t
   const artifactPath = path.join(tempDir, "machine.artifact.json");
 
   const compiled = await compileBondDescriptorBoundSettlementMachine(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    previousIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    previousIssuancePath: path.resolve("docs/definitions/bond-issuance-state.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextOutputHash: "f".repeat(64),
     nextAmountSat: 1900,
     maxFeeSat: 100,
@@ -535,10 +535,10 @@ test("compile descriptor-bound settlement machine and verify artifact", async (t
 
   const verification = await verifyBondDescriptorBoundSettlementMachineArtifact(sdk, {
     artifactPath,
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    previousIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    previousIssuancePath: path.resolve("docs/definitions/bond-issuance-state.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextOutputHash: "f".repeat(64),
     nextAmountSat: 1900,
     maxFeeSat: 100,
@@ -564,10 +564,10 @@ test("compile descriptor-bound settlement machine auto-derives nextOutputHash fo
   const artifactPath = path.join(tempDir, "machine.artifact.json");
 
   const compiled = await compileBondDescriptorBoundSettlementMachine(sdk, {
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    previousIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    previousIssuancePath: path.resolve("docs/definitions/bond-issuance-state.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     maxFeeSat: 100,
     artifactPath,
@@ -577,10 +577,10 @@ test("compile descriptor-bound settlement machine auto-derives nextOutputHash fo
 
   const verification = await verifyBondDescriptorBoundSettlementMachineArtifact(sdk, {
     artifactPath,
-    definitionPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json"),
-    previousIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json"),
-    nextIssuancePath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json"),
-    nextStateSimfPath: path.resolve("/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf"),
+    definitionPath: path.resolve("docs/definitions/bond-definition.json"),
+    previousIssuancePath: path.resolve("docs/definitions/bond-issuance-state.json"),
+    nextIssuancePath: path.resolve("docs/definitions/bond-issuance-state-partial-redemption.json"),
+    nextStateSimfPath: path.resolve("docs/definitions/bond-issuance-anchor.simf"),
     nextAmountSat: 1900,
     maxFeeSat: 100,
   });

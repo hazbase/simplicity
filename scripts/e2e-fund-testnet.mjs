@@ -4,8 +4,9 @@ import {
   createSimplicityClient,
   summarizeDistributionDescriptor,
 } from "../dist/index.js";
+import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
-const RUNTIME_STATE_SCHEMA_VERSION = "fund-e2e-testnet-state/v3";
+const RUNTIME_STATE_SCHEMA_VERSION = "fund-e2e-testnet-state/v4";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -226,7 +227,7 @@ async function loadOrPrepareCapitalCall(sdk, input) {
     ...clone(baseDefinition),
     fundId: env("FUND_ID", "FUND-E2E-001"),
     managerEntityId: env("FUND_MANAGER_ENTITY_ID", "manager-a"),
-    managerXonly: env("FUND_MANAGER_XONLY", "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
+    managerXonly: input.managerXonly,
     currencyAssetId,
     vintage: env("FUND_VINTAGE", String(new Date().getUTCFullYear())),
     jurisdiction: env("FUND_JURISDICTION", "JP"),
@@ -238,7 +239,7 @@ async function loadOrPrepareCapitalCall(sdk, input) {
     lpId: env("FUND_LP_ID", "lp-a"),
     currencyAssetId,
     amount: input.capitalCallAmountSat,
-    lpXonly: env("FUND_LP_XONLY", "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"),
+    lpXonly: input.lpXonly,
     managerXonly: definition.managerXonly,
     status: "OPEN",
     claimCutoffHeight: currentHeight + input.claimCutoffBlocks,
@@ -394,8 +395,6 @@ async function main() {
   const requiredConfirmations = Number(env("FUND_REQUIRED_CONFIRMATIONS", "1"));
   const waitTimeoutMs = Number(env("FUND_WAIT_TIMEOUT_MS", "1800000"));
   const waitPollMs = Number(env("FUND_WAIT_POLL_MS", "30000"));
-  const managerPrivkey = env("FUND_MANAGER_PRIVKEY", "0000000000000000000000000000000000000000000000000000000000000001");
-  const lpPrivkey = env("FUND_LP_PRIVKEY", "0000000000000000000000000000000000000000000000000000000000000002");
   const claimedAt = env("FUND_CLAIMED_AT", nowIso());
   const refundedAt = env("FUND_REFUNDED_AT", nowIso());
   const approvedAt = env("FUND_APPROVED_AT", "2027-03-18T00:00:00Z");
@@ -445,6 +444,23 @@ async function main() {
     distributions: [],
   };
 
+  const managerKeyPair = resolveRuntimeKeyPair({
+    label: "fund manager",
+    explicitPrivkey: process.env.FUND_MANAGER_PRIVKEY,
+    explicitXonly: process.env.FUND_MANAGER_XONLY,
+    runtimeState,
+    privkeyStateKey: "managerPrivkey",
+    xonlyStateKey: "managerXonly",
+  });
+  const lpKeyPair = resolveRuntimeKeyPair({
+    label: "fund lp",
+    explicitPrivkey: process.env.FUND_LP_PRIVKEY,
+    explicitXonly: process.env.FUND_LP_XONLY,
+    runtimeState,
+    privkeyStateKey: "lpPrivkey",
+    xonlyStateKey: "lpXonly",
+  });
+
   runtimeState.bindingMode = outputBindingMode;
   runtimeState.flowMode = flowMode;
   runtimeState.runtimeStatePath = runtimeStatePath;
@@ -478,6 +494,8 @@ async function main() {
     runtimeStatePath,
     capitalCallAmountSat,
     claimCutoffBlocks,
+    managerXonly: managerKeyPair.xonly,
+    lpXonly: lpKeyPair.xonly,
   });
 
   const openContractAddress = capitalCallPrepared.openCompiled.deployment().contractAddress;
@@ -534,7 +552,7 @@ async function main() {
         definitionPath,
         capitalCallPath: openCapitalCallPath,
         wallet: env("ELEMENTS_RPC_WALLET", "simplicity-test"),
-        signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
+        signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
         feeSat,
         broadcast: true,
       });
@@ -566,7 +584,7 @@ async function main() {
         refundAddress,
         refundedAt,
         wallet: env("ELEMENTS_RPC_WALLET", "simplicity-test"),
-        signer: { type: "schnorrPrivkeyHex", privkeyHex: lpPrivkey },
+        signer: { type: "schnorrPrivkeyHex", privkeyHex: lpKeyPair.privkeyHex },
         feeSat,
         broadcast: true,
       });
@@ -622,7 +640,7 @@ async function main() {
       claimedAt,
       outputBindingMode,
       wallet: env("ELEMENTS_RPC_WALLET", "simplicity-test"),
-      signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
       feeSat,
       broadcast: true,
     });
@@ -715,7 +733,7 @@ async function main() {
         payoutAddress,
         outputBindingMode,
         wallet: env("ELEMENTS_RPC_WALLET", "simplicity-test"),
-        signer: { type: "schnorrPrivkeyHex", privkeyHex: lpPrivkey },
+        signer: { type: "schnorrPrivkeyHex", privkeyHex: lpKeyPair.privkeyHex },
         feeSat,
         broadcast: true,
       });
@@ -735,7 +753,7 @@ async function main() {
         definitionPath,
         positionReceiptPath: positionReceiptEnvelopePath,
         distributionPath: entry.distributionPath,
-        signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
+        signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
         signedAt: entry.approvedAt,
       });
       await writeJson(positionReceiptEnvelopePath, reconciled.reconciledReceiptEnvelope);

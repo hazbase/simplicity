@@ -1,4 +1,5 @@
 import path from "node:path";
+import { schnorr } from "@noble/curves/secp256k1.js";
 import { createSimplicityClient } from "../src";
 
 export function exampleValue(name: string, fallback: string): string {
@@ -9,6 +10,10 @@ export function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required env var: ${name}`);
   return value;
+}
+
+export function deriveXonlyFromPrivkeyHex(privkeyHex: string): string {
+  return Buffer.from(schnorr.getPublicKey(Buffer.from(privkeyHex, "hex"))).toString("hex");
 }
 
 export function resolveExamplePath(defaultRelativePath: string, envName: string): string {

@@ -369,9 +369,9 @@ test("bond verify keeps on-chain anchor verified when artifact is saved outside 
   const sdk = createSimplicityClient(TEST_CONFIG);
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-verify-"));
   const artifactPath = path.join(tempDir, "bond.artifact.json");
-  const simfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const issuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const simfPath = "docs/definitions/bond-issuance-anchor.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const issuancePath = "docs/definitions/bond-issuance-state.json";
 
   await sdk.bonds.define({
     definitionPath,
@@ -419,9 +419,9 @@ test("buildBondPayload returns bridge-ready trust summary", async (t) => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-payload-"));
   const artifactPath = path.join(tempDir, "bond.artifact.json");
-  const simfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const issuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const simfPath = "docs/definitions/bond-issuance-anchor.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const issuancePath = "docs/definitions/bond-issuance-state.json";
 
   await sdk.bonds.define({
     definitionPath,
@@ -457,11 +457,11 @@ test("compileBondTransition compiles previous and next issuance state into a new
   const sdk = createSimplicityClient(TEST_CONFIG);
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-transition-"));
   const artifactPath = path.join(tempDir, "bond-transition.artifact.json");
-  const simfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-redemption-transition.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const previousIssuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const simfPath = "docs/definitions/bond-redemption-transition.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const previousIssuancePath = "docs/definitions/bond-issuance-state.json";
   const nextIssuancePath =
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
+    "docs/definitions/bond-issuance-state-partial-redemption.json";
 
   const result = await compileBondTransition(sdk, {
     definitionPath,
@@ -497,11 +497,11 @@ test("compileBondRedemptionMachine commits redeem amount and transition kind", a
   const sdk = createSimplicityClient(TEST_CONFIG);
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-redemption-machine-"));
   const artifactPath = path.join(tempDir, "bond-redemption-machine.artifact.json");
-  const simfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-redemption-state-machine.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const previousIssuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const simfPath = "docs/definitions/bond-redemption-state-machine.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const previousIssuancePath = "docs/definitions/bond-issuance-state.json";
   const nextIssuancePath =
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
+    "docs/definitions/bond-issuance-state-partial-redemption.json";
 
   const result = await compileBondRedemptionMachine(sdk, {
     definitionPath,
@@ -557,11 +557,11 @@ test("verifyBondRedemptionMachineArtifact validates committed transition paramet
   const sdk = createSimplicityClient(TEST_CONFIG);
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-redemption-verify-"));
   const artifactPath = path.join(tempDir, "bond-redemption-machine.artifact.json");
-  const simfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-redemption-state-machine.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const previousIssuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const simfPath = "docs/definitions/bond-redemption-state-machine.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const previousIssuancePath = "docs/definitions/bond-issuance-state.json";
   const nextIssuancePath =
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
+    "docs/definitions/bond-issuance-state-partial-redemption.json";
 
   await compileBondRedemptionMachine(sdk, {
     definitionPath,
@@ -668,11 +668,11 @@ test("buildBondRolloverPlan compiles next state artifact and targets next contra
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-rollover-plan-"));
   const currentArtifactPath = path.join(tempDir, "bond-current.artifact.json");
   const nextArtifactPath = path.join(tempDir, "bond-next.artifact.json");
-  const simfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const previousIssuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const simfPath = "docs/definitions/bond-issuance-anchor.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const previousIssuancePath = "docs/definitions/bond-issuance-state.json";
   const nextIssuancePath =
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
+    "docs/definitions/bond-issuance-state-partial-redemption.json";
 
   await sdk.bonds.define({
     definitionPath,
@@ -711,12 +711,12 @@ test("buildBondMachineRolloverPlan compiles redemption machine artifact and targ
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-machine-rollover-plan-"));
   const currentArtifactPath = path.join(tempDir, "bond-current.artifact.json");
   const machineArtifactPath = path.join(tempDir, "bond-machine.artifact.json");
-  const currentSimfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf";
-  const machineSimfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-redemption-state-machine.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const previousIssuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const currentSimfPath = "docs/definitions/bond-issuance-anchor.simf";
+  const machineSimfPath = "docs/definitions/bond-redemption-state-machine.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const previousIssuancePath = "docs/definitions/bond-issuance-state.json";
   const nextIssuancePath =
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
+    "docs/definitions/bond-issuance-state-partial-redemption.json";
 
   await sdk.bonds.define({
     definitionPath,
@@ -757,12 +757,12 @@ test("buildBondMachineSettlementPlan compiles next state artifact and targets ne
   const tempDir = await mkdtemp(path.join(tmpdir(), "simplicity-sdk-bond-machine-settlement-"));
   const currentMachineArtifactPath = path.join(tempDir, "bond-machine-current.artifact.json");
   const nextArtifactPath = path.join(tempDir, "bond-next.artifact.json");
-  const machineSimfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-redemption-state-machine.simf";
-  const nextSimfPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-anchor.simf";
-  const definitionPath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-definition.json";
-  const previousIssuancePath = "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state.json";
+  const machineSimfPath = "docs/definitions/bond-redemption-state-machine.simf";
+  const nextSimfPath = "docs/definitions/bond-issuance-anchor.simf";
+  const definitionPath = "docs/definitions/bond-definition.json";
+  const previousIssuancePath = "docs/definitions/bond-issuance-state.json";
   const nextIssuancePath =
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-issuance-state-partial-redemption.json";
+    "docs/definitions/bond-issuance-state-partial-redemption.json";
 
   const machine = await compileBondRedemptionMachine(sdk, {
     definitionPath,

@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createSimplicityClient } from "../dist/index.js";
+import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
-const RUNTIME_STATE_SCHEMA_VERSION = "policy-e2e-testnet-state/v1";
+const RUNTIME_STATE_SCHEMA_VERSION = "policy-e2e-testnet-state/v2";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -184,12 +185,8 @@ async function main() {
   const feeSat = Number(env("POLICY_FEE_SAT", "100"));
   const fundingSat = Number(env("POLICY_FUNDING_SAT", String(amountSat + feeSat)));
   const outputBindingMode = env("POLICY_OUTPUT_BINDING_MODE", "script-bound");
-  const currentRecipientXonly =
-    env("POLICY_CURRENT_RECIPIENT_XONLY", "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
   const nextRecipientXonly =
     env("POLICY_NEXT_RECIPIENT_XONLY", "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
-  const currentRecipientPrivkey =
-    env("POLICY_CURRENT_RECIPIENT_PRIVKEY", "0000000000000000000000000000000000000000000000000000000000000001");
   const artifactPath = env("POLICY_ARTIFACT_PATH", defaultArtifactPath(outputBindingMode));
   const statePath = env("POLICY_STATE_PATH", defaultStatePath(outputBindingMode));
   const runtimeStatePath = env("POLICY_RUNTIME_STATE_PATH", defaultRuntimeStatePath(outputBindingMode));
@@ -204,6 +201,15 @@ async function main() {
     phase: "init",
     lockDistanceBlocks,
   };
+
+  const currentRecipientKeyPair = resolveRuntimeKeyPair({
+    label: "policy current recipient",
+    explicitPrivkey: process.env.POLICY_CURRENT_RECIPIENT_PRIVKEY,
+    explicitXonly: process.env.POLICY_CURRENT_RECIPIENT_XONLY,
+    runtimeState,
+    privkeyStateKey: "currentRecipientPrivkey",
+    xonlyStateKey: "currentRecipientXonly",
+  });
 
   runtimeState.bindingMode = outputBindingMode;
   runtimeState.artifactPath = artifactPath;
@@ -224,7 +230,7 @@ async function main() {
     runtimeState,
     runtimeStatePath,
     template,
-    currentRecipientXonly,
+    currentRecipientXonly: currentRecipientKeyPair.xonly,
     lockDistanceBlocks,
     amountSat,
     assetId: env("POLICY_ASSET_ID", "bitcoin"),
@@ -286,7 +292,7 @@ async function main() {
     wallet: env("POLICY_WALLET", env("ELEMENTS_RPC_WALLET", "simplicity-test")),
     signer: {
       type: "schnorrPrivkeyHex",
-      privkeyHex: currentRecipientPrivkey,
+      privkeyHex: currentRecipientKeyPair.privkeyHex,
     },
     feeSat,
     broadcast: true,

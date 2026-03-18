@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createSimplicityClient } from "../dist/index.js";
+import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
-const RUNTIME_STATE_SCHEMA_VERSION = "bond-e2e-testnet-state/v1";
+const RUNTIME_STATE_SCHEMA_VERSION = "bond-e2e-testnet-state/v2";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -155,10 +156,12 @@ async function loadOrInitializeDefinitionState(sdk, input) {
   const definition = {
     ...clone(baseDefinition),
     maturityDate,
+    controllerXonly: input.signerXonly,
   };
   const issuance = {
     ...clone(baseIssuance),
     previousStateHash: null,
+    controllerXonly: input.signerXonly,
   };
   await writeJson(input.runtimeState.definitionPath, definition);
   await writeJson(input.runtimeState.issuancePath, issuance);
@@ -266,10 +269,6 @@ async function main() {
   const feeSat = Number(env("BOND_FEE_SAT", String(maxFeeSat)));
   const fundingSat = Number(env("BOND_FUNDING_SAT", String(nextAmountSat + feeSat)));
   const redeemedAt = env("BOND_REDEEMED_AT", "2027-03-10T00:00:00Z");
-  const signerPrivkey = env(
-    "BOND_SIGNER_PRIVKEY",
-    "0000000000000000000000000000000000000000000000000000000000000001",
-  );
   const waitTimeoutMs = Number(env("BOND_WAIT_TIMEOUT_MS", "1800000"));
   const waitPollMs = Number(env("BOND_WAIT_POLL_MS", "30000"));
 
@@ -282,6 +281,15 @@ async function main() {
     nextIssuancePath,
     phase: "init",
   };
+
+  const signerKeyPair = resolveRuntimeKeyPair({
+    label: "bond signer",
+    explicitPrivkey: process.env.BOND_SIGNER_PRIVKEY,
+    explicitXonly: process.env.BOND_SIGNER_XONLY,
+    runtimeState,
+    privkeyStateKey: "signerPrivkey",
+    xonlyStateKey: "signerXonly",
+  });
 
   runtimeState.bindingMode = outputBindingMode;
   runtimeState.artifactPath = artifactPath;
@@ -306,6 +314,7 @@ async function main() {
     baseIssuancePath,
     stateSimfPath,
     maturityOffset,
+    signerXonly: signerKeyPair.xonly,
   });
 
   await prepareOrReuseRedemption(sdk, {
@@ -369,7 +378,7 @@ async function main() {
     maxFeeSat,
     outputBindingMode,
     wallet: env("ELEMENTS_RPC_WALLET", "simplicity-test"),
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: signerPrivkey },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: signerKeyPair.privkeyHex },
     feeSat,
     utxoPolicy: (env("BOND_UTXO_POLICY", "largest")),
     broadcast: true,

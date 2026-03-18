@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
+import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
 const execFileAsync = promisify(execFile);
-const MANAGER_PRIVKEY = "0000000000000000000000000000000000000000000000000000000000000001";
 
 async function hasBinary(name) {
   try {
@@ -17,6 +17,13 @@ async function hasBinary(name) {
 }
 
 async function main() {
+  const managerKeyPair = resolveRuntimeKeyPair({
+    label: "fund manager",
+    explicitPrivkey: process.env.FUND_MANAGER_PRIVKEY,
+    explicitXonly: process.env.FUND_MANAGER_XONLY,
+    privkeyStateKey: "managerPrivkey",
+    xonlyStateKey: "managerXonly",
+  });
   const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-fund-consumer-"));
   const npmEnv = {
@@ -54,6 +61,7 @@ async function main() {
     smokePath,
     `
 import { mkdtemp } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -67,7 +75,8 @@ import {
 } from "@hazbase/simplicity";
 
 const execFileAsync = promisify(execFile);
-const MANAGER_PRIVKEY = "${MANAGER_PRIVKEY}";
+const MANAGER_PRIVKEY = "${managerKeyPair.privkeyHex}";
+const MANAGER_XONLY = "${managerKeyPair.xonly}";
 
 async function hasBinary(name) {
   try {
@@ -115,19 +124,25 @@ sdk.rpc.call = async (method) => {
 };
 
 const tempDir = await mkdtemp(path.join(tmpdir(), "fund-consumer-artifact-"));
-const definitionPath = path.join(docsRoot, "fund-definition.json");
-const capitalCallPath = path.join(docsRoot, "fund-capital-call-state.json");
+const definitionValue = {
+  ...JSON.parse(await readFile(path.join(docsRoot, "fund-definition.json"), "utf8")),
+  managerXonly: MANAGER_XONLY,
+};
+const capitalCallValue = {
+  ...JSON.parse(await readFile(path.join(docsRoot, "fund-capital-call-state.json"), "utf8")),
+  managerXonly: MANAGER_XONLY,
+};
 
 const prepared = await sdk.funds.prepareCapitalCall({
-  definitionPath,
-  capitalCallPath,
+  definitionValue,
+  capitalCallValue,
   openArtifactPath: path.join(tempDir, "capital-call-open.artifact.json"),
   refundOnlyArtifactPath: path.join(tempDir, "capital-call-refund-only.artifact.json"),
 });
 
 const capitalCallVerified = await sdk.funds.verifyCapitalCall({
   artifact: prepared.openCompiled.artifact,
-  definitionPath,
+  definitionValue,
   capitalCallValue: prepared.capitalCallValue,
 });
 
@@ -142,18 +157,18 @@ const initialReceipt = buildLPPositionReceipt({
   effectiveAt: "2026-03-18T00:00:00Z",
 });
 const signedInitialReceipt = await sdk.funds.signPositionReceipt({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: initialReceipt,
   signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
   signedAt: "2026-03-18T00:00:00Z",
 });
 const verifiedInitialReceipt = await sdk.funds.verifyPositionReceipt({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
 });
 
 const firstDistribution = await sdk.funds.prepareDistribution({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
   distributionId: "DIST-001",
   assetId: prepared.capitalCallValue.currencyAssetId,
@@ -163,12 +178,12 @@ const firstDistribution = await sdk.funds.prepareDistribution({
 });
 const verifiedFirstDistribution = await sdk.funds.verifyDistribution({
   artifact: firstDistribution.compiled.artifact,
-  definitionPath,
+  definitionValue,
   positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
   distributionValue: firstDistribution.distributionValue,
 });
 const afterFirst = await sdk.funds.reconcilePosition({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
   distributionValue: firstDistribution.distributionValue,
   signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
@@ -176,7 +191,7 @@ const afterFirst = await sdk.funds.reconcilePosition({
 });
 
 const secondDistribution = await sdk.funds.prepareDistribution({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
   distributionId: "DIST-002",
   assetId: prepared.capitalCallValue.currencyAssetId,
@@ -186,12 +201,12 @@ const secondDistribution = await sdk.funds.prepareDistribution({
 });
 const verifiedSecondDistribution = await sdk.funds.verifyDistribution({
   artifact: secondDistribution.compiled.artifact,
-  definitionPath,
+  definitionValue,
   positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
   distributionValue: secondDistribution.distributionValue,
 });
 const afterSecond = await sdk.funds.reconcilePosition({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
   distributionValue: secondDistribution.distributionValue,
   signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
@@ -211,7 +226,7 @@ const binding = sdk.outputBinding.evaluateSupport({
 });
 
 const closing = await sdk.funds.prepareClosing({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
   closingId: "CLOSE-001",
   finalDistributionHashes: [
@@ -221,18 +236,18 @@ const closing = await sdk.funds.prepareClosing({
   closedAt: "2029-03-18T00:00:00Z",
 });
 const verifiedFinalReceipt = await sdk.funds.verifyPositionReceipt({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
 });
 const verifiedClosing = await sdk.funds.verifyClosing({
-  definitionPath,
+  definitionValue,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
   closingValue: closing.closingValue,
 });
 
 const finality = await sdk.funds.exportFinalityPayload({
   artifact: secondDistribution.compiled.artifact,
-  definitionPath,
+  definitionValue,
   capitalCallValue: claimedCapitalCall,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
   distributionValues: [

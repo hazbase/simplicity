@@ -1,5 +1,6 @@
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
+import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 import {
   buildClaimedCapitalCallState,
   buildLPPositionReceipt,
@@ -8,7 +9,6 @@ import {
 } from "../dist/index.js";
 
 const execFileAsync = promisify(execFile);
-const MANAGER_PRIVKEY = "0000000000000000000000000000000000000000000000000000000000000001";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -55,10 +55,17 @@ async function main() {
   }
 
   const sdk = createLocalFundClient();
+  const managerKeyPair = resolveRuntimeKeyPair({
+    label: "fund manager",
+    explicitPrivkey: process.env.FUND_MANAGER_PRIVKEY,
+    explicitXonly: process.env.FUND_MANAGER_XONLY,
+    privkeyStateKey: "managerPrivkey",
+    xonlyStateKey: "managerXonly",
+  });
   const definition = {
     fundId: "FUND-LOCAL-001",
     managerEntityId: "manager-a",
-    managerXonly: env("FUND_MANAGER_XONLY", "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"),
+    managerXonly: managerKeyPair.xonly,
     currencyAssetId: env("FUND_CURRENCY_ASSET_ID", "bitcoin"),
     jurisdiction: "JP",
     vintage: "2026",
@@ -102,7 +109,7 @@ async function main() {
   const signedInitialReceipt = await sdk.funds.signPositionReceipt({
     definitionValue: definition,
     positionReceiptValue: initialReceipt,
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
     signedAt: env("FUND_EFFECTIVE_AT", "2026-03-18T00:00:00Z"),
   });
   const verifiedInitialReceipt = await sdk.funds.verifyPositionReceipt({
@@ -128,7 +135,7 @@ async function main() {
     definitionValue: definition,
     positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
     distributionValue: firstDistribution.distributionValue,
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
     signedAt: env("FUND_FIRST_APPROVED_AT", "2027-03-18T00:00:00Z"),
   });
 
@@ -150,7 +157,7 @@ async function main() {
     definitionValue: definition,
     positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
     distributionValue: secondDistribution.distributionValue,
-    signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
+    signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
     signedAt: env("FUND_SECOND_APPROVED_AT", "2028-03-18T00:00:00Z"),
   });
 

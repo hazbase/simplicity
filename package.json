@@ -27,13 +27,14 @@
   "files": [
     "dist",
     "!dist/test",
+    "!dist/internal/experimental",
     "README.md"
   ],
   "bin": {
     "simplicity-cli": "dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && node scripts/copy-presets.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-presets.mjs",
     "start": "node dist/cli.js",
     "test": "npm run build && node --test dist/test",
     "e2e:policy-local": "npm run build && node scripts/e2e-policy-local.mjs",

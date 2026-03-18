@@ -437,7 +437,7 @@ test("different definition hashes change program, cmr, and contract address", as
   }
 
   const simfPath = path.resolve(
-    "/Users/y_hoshino/Work/hazbase/liquid/simplicity-sdk/docs/definitions/bond-anchor.simf"
+    "docs/definitions/bond-anchor.simf"
   );
   const left = await compileFromFile(
     {
