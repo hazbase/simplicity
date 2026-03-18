@@ -1,0 +1,8 @@
+{
+  "fundId": "FUND-2026-ALPHA",
+  "managerEntityId": "manager-a",
+  "managerXonly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  "currencyAssetId": "bitcoin",
+  "jurisdiction": "JP",
+  "vintage": "2026"
+}

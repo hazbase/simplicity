@@ -954,6 +954,249 @@ function formatBondFinalityPayloadSummary(input: {
     .join("\n");
 }
 
+function formatFundOutputBindingSummary(outputBinding: {
+  mode: string;
+  requestedMode?: string;
+  supportedForm?: string;
+  nextReceiverRuntimeCommitted: boolean;
+  outputCountRuntimeBound: boolean;
+  feeIndexRuntimeBound: boolean;
+  nextOutputHashRuntimeBound?: boolean;
+  nextOutputScriptRuntimeBound: boolean;
+  amountRuntimeBound: boolean;
+  reasonCode?: string;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+  bindingInputs?: {
+    assetId: string;
+    assetForm: string;
+    amountForm: string;
+    nonceForm: string;
+    rangeProofForm: string;
+    nextAmountSat: number;
+    nextOutputIndex: number;
+    feeIndex: number;
+    maxFeeSat: number;
+    rawOutputComponents?: {
+      scriptPubKey: "raw-bytes" | "hash";
+      rangeProof: "raw-bytes" | "hash";
+    };
+  };
+}): string {
+  const lines = [
+    `mode=${outputBinding.mode}`,
+    outputBinding.requestedMode ? `requestedMode=${outputBinding.requestedMode}` : undefined,
+    `nextReceiverRuntimeCommitted=${outputBinding.nextReceiverRuntimeCommitted}`,
+    `outputCountRuntimeBound=${outputBinding.outputCountRuntimeBound}`,
+    `feeIndexRuntimeBound=${outputBinding.feeIndexRuntimeBound}`,
+    `nextOutputHashRuntimeBound=${outputBinding.nextOutputHashRuntimeBound ?? false}`,
+    `nextOutputScriptRuntimeBound=${outputBinding.nextOutputScriptRuntimeBound}`,
+    `amountRuntimeBound=${outputBinding.amountRuntimeBound}`,
+    outputBinding.supportedForm ? `supportedForm=${outputBinding.supportedForm}` : undefined,
+    outputBinding.reasonCode ? `reasonCode=${outputBinding.reasonCode}` : undefined,
+    outputBinding.autoDerived !== undefined ? `autoDerived=${outputBinding.autoDerived}` : undefined,
+    outputBinding.fallbackReason ? `fallbackReason=${outputBinding.fallbackReason}` : undefined,
+  ].filter(Boolean) as string[];
+  if (outputBinding.bindingInputs) {
+    lines.push(
+      `bindingInputs(asset=${outputBinding.bindingInputs.assetId}, amountSat=${outputBinding.bindingInputs.nextAmountSat}, nextOutputIndex=${outputBinding.bindingInputs.nextOutputIndex}, feeIndex=${outputBinding.bindingInputs.feeIndex}, maxFeeSat=${outputBinding.bindingInputs.maxFeeSat})`,
+      `bindingInputForms(assetForm=${outputBinding.bindingInputs.assetForm}, amountForm=${outputBinding.bindingInputs.amountForm}, nonceForm=${outputBinding.bindingInputs.nonceForm}, rangeProofForm=${outputBinding.bindingInputs.rangeProofForm})`,
+    );
+    if (outputBinding.bindingInputs.rawOutputComponents) {
+      lines.push(
+        `rawOutputComponents(scriptPubKey=${outputBinding.bindingInputs.rawOutputComponents.scriptPubKey}, rangeProof=${outputBinding.bindingInputs.rawOutputComponents.rangeProof})`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatFundDefinitionSummary(input: {
+  ok?: boolean;
+  fundId: string;
+  managerEntityId: string;
+  currencyAssetId: string;
+  jurisdiction?: string;
+  vintage?: string;
+}): string {
+  return [
+    `ok=${input.ok ?? true}`,
+    `fundId=${input.fundId}`,
+    `managerEntityId=${input.managerEntityId}`,
+    `currencyAssetId=${input.currencyAssetId}`,
+    input.jurisdiction ? `jurisdiction=${input.jurisdiction}` : undefined,
+    input.vintage ? `vintage=${input.vintage}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatFundCapitalCallSummary(input: {
+  phase: string;
+  callId: string;
+  status: string;
+  amount: number;
+  assetId: string;
+  contractAddress?: string;
+  txId?: string;
+  broadcasted?: boolean;
+  summaryHash?: string;
+  positionReceiptHash?: string;
+  outputBinding?: Parameters<typeof formatFundOutputBindingSummary>[0] | null;
+  reason?: string;
+  ok?: boolean;
+}): string {
+  const lines = [
+    `phase=${input.phase}`,
+    input.ok !== undefined ? `ok=${input.ok}` : undefined,
+    `callId=${input.callId}`,
+    `status=${input.status}`,
+    `amount=${input.amount}`,
+    `assetId=${input.assetId}`,
+    input.contractAddress ? `contractAddress=${input.contractAddress}` : undefined,
+    input.summaryHash ? `summaryHash=${input.summaryHash}` : undefined,
+    input.positionReceiptHash ? `positionReceiptHash=${input.positionReceiptHash}` : undefined,
+    input.txId ? `txId=${input.txId}` : undefined,
+    input.broadcasted !== undefined ? `broadcasted=${input.broadcasted}` : undefined,
+    input.reason ? `reason=${input.reason}` : undefined,
+  ].filter(Boolean) as string[];
+  if (input.outputBinding) {
+    lines.push("outputBinding:");
+    lines.push(indent(formatFundOutputBindingSummary(input.outputBinding), 2));
+  }
+  return lines.join("\n");
+}
+
+function formatFundDistributionSummary(input: {
+  phase: string;
+  distributionId: string;
+  positionId: string;
+  amountSat: number;
+  assetId: string;
+  contractAddress?: string;
+  txId?: string;
+  broadcasted?: boolean;
+  summaryHash?: string;
+  outputBinding?: Parameters<typeof formatFundOutputBindingSummary>[0] | null;
+  reason?: string;
+  ok?: boolean;
+}): string {
+  const lines = [
+    `phase=${input.phase}`,
+    input.ok !== undefined ? `ok=${input.ok}` : undefined,
+    `distributionId=${input.distributionId}`,
+    `positionId=${input.positionId}`,
+    `amountSat=${input.amountSat}`,
+    `assetId=${input.assetId}`,
+    input.contractAddress ? `contractAddress=${input.contractAddress}` : undefined,
+    input.summaryHash ? `summaryHash=${input.summaryHash}` : undefined,
+    input.txId ? `txId=${input.txId}` : undefined,
+    input.broadcasted !== undefined ? `broadcasted=${input.broadcasted}` : undefined,
+    input.reason ? `reason=${input.reason}` : undefined,
+  ].filter(Boolean) as string[];
+  if (input.outputBinding) {
+    lines.push("outputBinding:");
+    lines.push(indent(formatFundOutputBindingSummary(input.outputBinding), 2));
+  }
+  return lines.join("\n");
+}
+
+function formatFundReceiptReconcileSummary(input: {
+  positionId: string;
+  distributionCount: number;
+  distributedAmount: number;
+  fundedAmount: number;
+  status: string;
+  receiptHash: string;
+  sequence?: number;
+  envelopeHash?: string;
+}): string {
+  return [
+    `positionId=${input.positionId}`,
+    `distributionCount=${input.distributionCount}`,
+    `distributedAmount=${input.distributedAmount}`,
+    `fundedAmount=${input.fundedAmount}`,
+    `status=${input.status}`,
+    `receiptHash=${input.receiptHash}`,
+    input.sequence !== undefined ? `sequence=${input.sequence}` : undefined,
+    input.envelopeHash ? `envelopeHash=${input.envelopeHash}` : undefined,
+  ].join("\n");
+}
+
+function formatFundClosingSummary(input: {
+  ok?: boolean;
+  closingHash: string;
+  closedAt: string;
+  closingReason: string;
+  positionId: string;
+  distributionCount: number;
+  reason?: string;
+}): string {
+  return [
+    `ok=${input.ok ?? true}`,
+    `closingHash=${input.closingHash}`,
+    `closedAt=${input.closedAt}`,
+    `closingReason=${input.closingReason}`,
+    `positionId=${input.positionId}`,
+    `distributionCount=${input.distributionCount}`,
+    input.reason ? `reason=${input.reason}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatFundEvidenceSummary(input: {
+  definitionHash: string;
+  capitalCallHash?: string | null;
+  positionReceiptHash?: string | null;
+  positionReceiptEnvelopeHash?: string | null;
+  distributionHash?: string | null;
+  closingHash?: string | null;
+  sourceVerificationMode: string;
+}): string {
+  return [
+    `definitionHash=${input.definitionHash}`,
+    input.capitalCallHash ? `capitalCallHash=${input.capitalCallHash}` : undefined,
+    input.positionReceiptHash ? `positionReceiptHash=${input.positionReceiptHash}` : undefined,
+    input.positionReceiptEnvelopeHash ? `positionReceiptEnvelopeHash=${input.positionReceiptEnvelopeHash}` : undefined,
+    input.distributionHash ? `distributionHash=${input.distributionHash}` : undefined,
+    input.closingHash ? `closingHash=${input.closingHash}` : undefined,
+    `sourceVerificationMode=${input.sourceVerificationMode}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatFundFinalitySummary(input: {
+  fundId: string;
+  lpId: string;
+  callId?: string;
+  positionId?: string;
+  definitionHash: string;
+  capitalCallStateHash?: string | null;
+  positionReceiptHash?: string | null;
+  positionReceiptEnvelopeHash?: string | null;
+  distributionHash?: string | null;
+  closingHash?: string | null;
+  bindingMode: string;
+}): string {
+  return [
+    `fundId=${input.fundId}`,
+    `lpId=${input.lpId}`,
+    input.callId ? `callId=${input.callId}` : undefined,
+    input.positionId ? `positionId=${input.positionId}` : undefined,
+    `definitionHash=${input.definitionHash}`,
+    input.capitalCallStateHash ? `capitalCallStateHash=${input.capitalCallStateHash}` : undefined,
+    input.positionReceiptHash ? `positionReceiptHash=${input.positionReceiptHash}` : undefined,
+    input.positionReceiptEnvelopeHash ? `positionReceiptEnvelopeHash=${input.positionReceiptEnvelopeHash}` : undefined,
+    input.distributionHash ? `distributionHash=${input.distributionHash}` : undefined,
+    input.closingHash ? `closingHash=${input.closingHash}` : undefined,
+    `bindingMode=${input.bindingMode}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function indent(text: string, spaces = 2): string {
   const prefix = " ".repeat(spaces);
   return text
@@ -1333,7 +1576,7 @@ async function main(): Promise<void> {
   const sdk = createSimplicityClient(resolveConfig());
 
   if (!command) {
-    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|binding|policy|bond|gasless> ...");
+    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|binding|policy|bond|fund|gasless> ...");
   }
 
   if (command === "compile") {
@@ -2540,6 +2783,739 @@ async function main(): Promise<void> {
         cmr: result.payload.cmr,
         bindingMode: result.bindingMode,
       }),
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "define") {
+    const result = await sdk.funds.define({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+    });
+    printJson({
+      summaryText: formatFundDefinitionSummary({
+        ok: result.ok,
+        fundId: result.definitionValue.fundId,
+        managerEntityId: result.definitionValue.managerEntityId,
+        currencyAssetId: result.definitionValue.currencyAssetId,
+        jurisdiction: result.definitionValue.jurisdiction,
+        vintage: result.definitionValue.vintage,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "verify") {
+    const result = await sdk.funds.verify({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+    });
+    printJson({
+      summaryText: formatFundDefinitionSummary({
+        ok: result.ok,
+        fundId: result.definitionValue.fundId,
+        managerEntityId: result.definitionValue.managerEntityId,
+        currencyAssetId: result.definitionValue.currencyAssetId,
+        jurisdiction: result.definitionValue.jurisdiction,
+        vintage: result.definitionValue.vintage,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "prepare-capital-call") {
+    const result = await sdk.funds.prepareCapitalCall({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      openSimfPath: getArg("open-simf") ?? getArg("simf"),
+      refundOnlySimfPath: getArg("refund-only-simf"),
+      openArtifactPath: getArg("open-artifact") ?? getArg("artifact"),
+      refundOnlyArtifactPath: getArg("refund-only-artifact"),
+    });
+    printJson({
+      summary: {
+        callId: result.capitalCallValue.callId,
+        status: result.capitalCallValue.status,
+        amount: result.capitalCallValue.amount,
+        assetId: result.capitalCallValue.currencyAssetId,
+        openContractAddress: result.openCompiled.deployment().contractAddress,
+        refundOnlyContractAddress: result.refundOnlyCompiled.deployment().contractAddress,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "prepare",
+        callId: result.capitalCallValue.callId,
+        status: result.capitalCallValue.status,
+        amount: result.capitalCallValue.amount,
+        assetId: result.capitalCallValue.currencyAssetId,
+        contractAddress: result.openCompiled.deployment().contractAddress,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "verify-capital-call") {
+    const result = await sdk.funds.verifyCapitalCall({
+      artifactPath: getArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        ok: result.ok,
+        reason: result.reason,
+        callId: result.capitalCallValue.callId,
+        status: result.capitalCallValue.status,
+        amount: result.capitalCallValue.amount,
+        assetId: result.capitalCallValue.currencyAssetId,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "verify",
+        ok: result.ok,
+        reason: result.reason,
+        callId: result.capitalCallValue.callId,
+        status: result.capitalCallValue.status,
+        amount: result.capitalCallValue.amount,
+        assetId: result.capitalCallValue.currencyAssetId,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "inspect-capital-call-claim") {
+    const result = await sdk.funds.inspectCapitalCallClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      payoutAddress: requireArg("payout-address"),
+      positionId: getArg("position-id"),
+      claimedAt: getArg("claimed-at"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson({
+      summary: {
+        callId: result.verified.capitalCallValue.callId,
+        status: result.claimedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        summaryHash: result.inspect.summaryHash,
+        positionReceiptHash: result.report.receiptTrust?.positionReceiptHash ?? null,
+        positionReceiptEnvelopeHash: result.positionReceiptEnvelope ? result.positionReceiptEnvelopeSummary?.hash ?? null : null,
+        outputBinding: result.report.outputBindingTrust ?? null,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "inspect-claim",
+        callId: result.verified.capitalCallValue.callId,
+        status: result.claimedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        summaryHash: result.inspect.summaryHash,
+        positionReceiptHash: result.report.receiptTrust?.positionReceiptHash,
+        outputBinding: result.report.outputBindingTrust,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "execute-capital-call-claim") {
+    const result = await sdk.funds.executeCapitalCallClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      payoutAddress: requireArg("payout-address"),
+      positionId: getArg("position-id"),
+      claimedAt: getArg("claimed-at"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      summary: {
+        callId: result.verified.capitalCallValue.callId,
+        status: result.claimedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        txId: result.execution.txId ?? null,
+        broadcasted: result.execution.broadcasted,
+        positionReceiptHash: result.report.receiptTrust?.positionReceiptHash ?? null,
+        outputBinding: result.report.outputBindingTrust ?? null,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "execute-claim",
+        callId: result.verified.capitalCallValue.callId,
+        status: result.claimedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        txId: result.execution.txId,
+        broadcasted: result.execution.broadcasted,
+        positionReceiptHash: result.report.receiptTrust?.positionReceiptHash,
+        outputBinding: result.report.outputBindingTrust,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "inspect-capital-call-rollover") {
+    const result = await sdk.funds.inspectCapitalCallRollover({
+      artifactPath: requireArg("artifact"),
+      refundOnlyArtifactPath: requireArg("refund-only-artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson({
+      summary: {
+        callId: result.verified.capitalCallValue.callId,
+        status: result.rolledOverCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        summaryHash: result.inspect.summaryHash,
+        refundOnlyContractAddress: result.refundOnlyArtifact.compiled.contractAddress,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "inspect-rollover",
+        callId: result.verified.capitalCallValue.callId,
+        status: result.rolledOverCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        summaryHash: result.inspect.summaryHash,
+        contractAddress: result.refundOnlyArtifact.compiled.contractAddress,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "execute-capital-call-rollover") {
+    const result = await sdk.funds.executeCapitalCallRollover({
+      artifactPath: requireArg("artifact"),
+      refundOnlyArtifactPath: requireArg("refund-only-artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      summary: {
+        callId: result.verified.capitalCallValue.callId,
+        status: result.rolledOverCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        txId: result.execution.txId ?? null,
+        broadcasted: result.execution.broadcasted,
+        refundOnlyContractAddress: result.refundOnlyArtifact.compiled.contractAddress,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "execute-rollover",
+        callId: result.verified.capitalCallValue.callId,
+        status: result.rolledOverCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        txId: result.execution.txId,
+        broadcasted: result.execution.broadcasted,
+        contractAddress: result.refundOnlyArtifact.compiled.contractAddress,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "inspect-capital-call-refund") {
+    const result = await sdk.funds.inspectCapitalCallRefund({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      refundAddress: requireArg("refund-address"),
+      refundedAt: getArg("refunded-at"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson({
+      summary: {
+        callId: result.verified.capitalCallValue.callId,
+        status: result.refundedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        summaryHash: result.inspect.summaryHash,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "inspect-refund",
+        callId: result.verified.capitalCallValue.callId,
+        status: result.refundedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        summaryHash: result.inspect.summaryHash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "execute-capital-call-refund") {
+    const result = await sdk.funds.executeCapitalCallRefund({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      refundAddress: requireArg("refund-address"),
+      refundedAt: getArg("refunded-at"),
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      summary: {
+        callId: result.verified.capitalCallValue.callId,
+        status: result.refundedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        txId: result.execution.txId ?? null,
+        broadcasted: result.execution.broadcasted,
+      },
+      summaryText: formatFundCapitalCallSummary({
+        phase: "execute-refund",
+        callId: result.verified.capitalCallValue.callId,
+        status: result.refundedCapitalCall.status,
+        amount: result.verified.capitalCallValue.amount,
+        assetId: result.verified.capitalCallValue.currencyAssetId,
+        txId: result.execution.txId,
+        broadcasted: result.execution.broadcasted,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "prepare-distribution") {
+    const result = await sdk.funds.prepareDistribution({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPath: getArg("distribution-json"),
+      distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
+      distributionId: getArg("distribution-id"),
+      assetId: getArg("asset-id"),
+      amountSat: getArg("amount-sat") ? Number(getArg("amount-sat")) : undefined,
+      approvedAt: getArg("approved-at"),
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({
+      summary: {
+        distributionId: result.distributionValue.distributionId,
+        positionId: result.distributionValue.positionId,
+        amountSat: result.distributionValue.amountSat,
+        assetId: result.distributionValue.assetId,
+        contractAddress: result.compiled.deployment().contractAddress,
+      },
+      summaryText: formatFundDistributionSummary({
+        phase: "prepare",
+        distributionId: result.distributionValue.distributionId,
+        positionId: result.distributionValue.positionId,
+        amountSat: result.distributionValue.amountSat,
+        assetId: result.distributionValue.assetId,
+        contractAddress: result.compiled.deployment().contractAddress,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "sign-position-receipt") {
+    const result = await sdk.funds.signPositionReceipt({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      signedAt: getArg("signed-at"),
+    });
+    printJson({
+      summary: {
+        positionId: result.positionReceiptValue.positionId,
+        sequence: result.positionReceiptEnvelope.receipt.sequence,
+        receiptHash: result.positionReceiptSummary.hash,
+        envelopeHash: result.positionReceiptEnvelopeSummary.hash,
+      },
+      summaryText: [
+        `positionId=${result.positionReceiptValue.positionId}`,
+        `sequence=${result.positionReceiptEnvelope.receipt.sequence}`,
+        `receiptHash=${result.positionReceiptSummary.hash}`,
+        `envelopeHash=${result.positionReceiptEnvelopeSummary.hash}`,
+      ].join("\n"),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "verify-position-receipt") {
+    const result = await sdk.funds.verifyPositionReceipt({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        verified: result.verified,
+        positionId: result.positionReceiptValue.receipt.positionId,
+        sequence: result.positionReceiptValue.receipt.sequence,
+        receiptHash: result.positionReceiptSummary.hash,
+        envelopeHash: result.positionReceiptEnvelopeSummary.hash,
+      },
+      summaryText: [
+        `verified=${result.verified}`,
+        `positionId=${result.positionReceiptValue.receipt.positionId}`,
+        `sequence=${result.positionReceiptValue.receipt.sequence}`,
+        `receiptHash=${result.positionReceiptSummary.hash}`,
+        `envelopeHash=${result.positionReceiptEnvelopeSummary.hash}`,
+      ].join("\n"),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "reconcile-position") {
+    const distributionJsons = getMultiArgs("distribution-json");
+    const distributionValues = getMultiArgs("distribution-value").map((value) => JSON.parse(value));
+    const result = await sdk.funds.reconcilePosition({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPaths: distributionJsons.length > 0 ? distributionJsons : undefined,
+      distributionValues: distributionValues.length > 0 ? distributionValues : undefined,
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      signedAt: getArg("signed-at"),
+    });
+    printJson({
+      summary: {
+        positionId: result.reconciledReceiptValue.positionId,
+        distributionCount: result.distributionCount,
+        distributedAmount: result.totalDistributedAmount,
+        fundedAmount: result.reconciledReceiptValue.fundedAmount,
+        status: result.reconciledReceiptValue.status,
+        receiptHash: result.reconciledReceiptSummary.hash,
+        sequence: result.reconciledReceiptValue.sequence,
+        envelopeHash: result.reconciledReceiptEnvelopeSummary.hash,
+      },
+      summaryText: formatFundReceiptReconcileSummary({
+        positionId: result.reconciledReceiptValue.positionId,
+        distributionCount: result.distributionCount,
+        distributedAmount: result.totalDistributedAmount,
+        fundedAmount: result.reconciledReceiptValue.fundedAmount,
+        status: result.reconciledReceiptValue.status,
+        receiptHash: result.reconciledReceiptSummary.hash,
+        sequence: result.reconciledReceiptValue.sequence,
+        envelopeHash: result.reconciledReceiptEnvelopeSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "verify-distribution") {
+    const result = await sdk.funds.verifyDistribution({
+      artifactPath: getArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPath: getArg("distribution-json"),
+      distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        ok: result.ok,
+        reason: result.reason,
+        distributionId: result.distributionValue.distributionId,
+        positionId: result.distributionValue.positionId,
+        amountSat: result.distributionValue.amountSat,
+        assetId: result.distributionValue.assetId,
+      },
+      summaryText: formatFundDistributionSummary({
+        phase: "verify",
+        ok: result.ok,
+        reason: result.reason,
+        distributionId: result.distributionValue.distributionId,
+        positionId: result.distributionValue.positionId,
+        amountSat: result.distributionValue.amountSat,
+        assetId: result.distributionValue.assetId,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "inspect-distribution-claim") {
+    const result = await sdk.funds.inspectDistributionClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPath: getArg("distribution-json"),
+      distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
+      payoutAddress: requireArg("payout-address"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson({
+      summary: {
+        distributionId: result.verified.distributionValue.distributionId,
+        positionId: result.verified.distributionValue.positionId,
+        amountSat: result.verified.distributionValue.amountSat,
+        assetId: result.verified.distributionValue.assetId,
+        summaryHash: result.inspect.summaryHash,
+        outputBinding: result.report.outputBindingTrust ?? null,
+      },
+      summaryText: formatFundDistributionSummary({
+        phase: "inspect-claim",
+        distributionId: result.verified.distributionValue.distributionId,
+        positionId: result.verified.distributionValue.positionId,
+        amountSat: result.verified.distributionValue.amountSat,
+        assetId: result.verified.distributionValue.assetId,
+        summaryHash: result.inspect.summaryHash,
+        outputBinding: result.report.outputBindingTrust,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "execute-distribution-claim") {
+    const result = await sdk.funds.executeDistributionClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPath: getArg("distribution-json"),
+      distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
+      payoutAddress: requireArg("payout-address"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      summary: {
+        distributionId: result.verified.distributionValue.distributionId,
+        positionId: result.verified.distributionValue.positionId,
+        amountSat: result.verified.distributionValue.amountSat,
+        assetId: result.verified.distributionValue.assetId,
+        txId: result.execution.txId ?? null,
+        broadcasted: result.execution.broadcasted,
+        outputBinding: result.report.outputBindingTrust ?? null,
+      },
+      summaryText: formatFundDistributionSummary({
+        phase: "execute-claim",
+        distributionId: result.verified.distributionValue.distributionId,
+        positionId: result.verified.distributionValue.positionId,
+        amountSat: result.verified.distributionValue.amountSat,
+        assetId: result.verified.distributionValue.assetId,
+        txId: result.execution.txId,
+        broadcasted: result.execution.broadcasted,
+        outputBinding: result.report.outputBindingTrust,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "prepare-closing") {
+    const result = await sdk.funds.prepareClosing({
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      closingPath: getArg("closing-json"),
+      closingValue: getArg("closing-value") ? JSON.parse(getArg("closing-value")!) : undefined,
+      closingId: getArg("closing-id"),
+      finalDistributionHashes: getMultiArgs("final-distribution-hash"),
+      closedAt: getArg("closed-at"),
+      closingReason: getArg("closing-reason") as "LIQUIDATED" | "CANCELLED" | "WRITTEN_OFF" | undefined,
+    });
+    printJson({
+      summary: {
+        closingHash: result.closingHash,
+        closedAt: result.closingValue.closedAt,
+        closingReason: result.closingValue.closingReason,
+        positionId: result.closingValue.positionId,
+        distributionCount: result.closingValue.finalDistributionHashes.length,
+      },
+      summaryText: formatFundClosingSummary({
+        closingHash: result.closingHash,
+        closedAt: result.closingValue.closedAt,
+        closingReason: result.closingValue.closingReason,
+        positionId: result.closingValue.positionId,
+        distributionCount: result.closingValue.finalDistributionHashes.length,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "verify-closing") {
+    const result = await sdk.funds.verifyClosing({
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      closingPath: getArg("closing-json"),
+      closingValue: getArg("closing-value") ? JSON.parse(getArg("closing-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        verified: result.verified,
+        closingHash: result.closingSummary.hash,
+        closedAt: result.closingValue.closedAt,
+        closingReason: result.closingValue.closingReason,
+        positionId: result.closingValue.positionId,
+        distributionCount: result.closingValue.finalDistributionHashes.length,
+      },
+      summaryText: formatFundClosingSummary({
+        ok: result.verified,
+        closingHash: result.closingSummary.hash,
+        closedAt: result.closingValue.closedAt,
+        closingReason: result.closingValue.closingReason,
+        positionId: result.closingValue.positionId,
+        distributionCount: result.closingValue.finalDistributionHashes.length,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "export-evidence") {
+    const result = await sdk.funds.exportEvidence({
+      artifactPath: getArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPath: getArg("distribution-json"),
+      distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
+      closingPath: getArg("closing-json"),
+      closingValue: getArg("closing-value") ? JSON.parse(getArg("closing-value")!) : undefined,
+      verificationReportValue: getArg("verification-report-value") ? JSON.parse(getArg("verification-report-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        definitionHash: result.definition.hash,
+        capitalCallHash: result.capitalCall?.hash ?? null,
+        positionReceiptHash: result.positionReceipt?.hash ?? null,
+        distributionHash: result.distribution?.hash ?? null,
+        closingHash: result.closing?.hash ?? null,
+        sourceVerificationMode: result.sourceVerificationMode,
+      },
+      summaryText: formatFundEvidenceSummary({
+        definitionHash: result.definition.hash,
+        capitalCallHash: result.capitalCall?.hash ?? null,
+        positionReceiptHash: result.positionReceipt?.hash ?? null,
+        distributionHash: result.distribution?.hash ?? null,
+        closingHash: result.closing?.hash ?? null,
+        sourceVerificationMode: result.sourceVerificationMode,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "export-finality-payload") {
+    const result = await sdk.funds.exportFinalityPayload({
+      artifactPath: getArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      capitalCallPath: getArg("capital-call-json"),
+      capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
+      positionReceiptPath: getArg("position-receipt-json"),
+      positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      distributionPath: getArg("distribution-json"),
+      distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
+      closingPath: getArg("closing-json"),
+      closingValue: getArg("closing-value") ? JSON.parse(getArg("closing-value")!) : undefined,
+      verificationReportValue: getArg("verification-report-value") ? JSON.parse(getArg("verification-report-value")!) : undefined,
+    });
+    printJson({
+      summary: {
+        fundId: result.fundId,
+        lpId: result.lpId,
+        callId: result.callId ?? null,
+        positionId: result.positionId ?? null,
+        definitionHash: result.definitionHash,
+        capitalCallStateHash: result.capitalCallStateHash ?? null,
+        positionReceiptHash: result.positionReceiptHash ?? null,
+        distributionHash: result.distributionHash ?? null,
+        closingHash: result.closingHash ?? null,
+        bindingMode: result.bindingMode,
+      },
+      summaryText: formatFundFinalitySummary({
+        fundId: result.fundId,
+        lpId: result.lpId,
+        callId: result.callId,
+        positionId: result.positionId,
+        definitionHash: result.definitionHash,
+        capitalCallStateHash: result.capitalCallStateHash,
+        positionReceiptHash: result.positionReceiptHash,
+        distributionHash: result.distributionHash,
+        closingHash: result.closingHash,
+        bindingMode: result.bindingMode,
+      }),
+      ...result,
     });
     return;
   }

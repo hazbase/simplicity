@@ -274,6 +274,7 @@ export interface CallBaseInput {
   periodId?: string;
   bondDefinitionId?: string;
   sequence?: number;
+  locktimeHeight?: number;
   witness?: WitnessConfig;
 }
 
@@ -367,6 +368,7 @@ export interface GaslessExecuteInput {
   contractChangeAddress?: string;
   sponsorChangeAddress?: string;
   utxoPolicy?: UtxoPolicy;
+  locktimeHeight?: number;
   broadcast?: boolean;
 }
 
@@ -566,6 +568,234 @@ export interface BondEvidenceBundle {
     program: string;
     cmr: string;
     contractAddress: string;
+  };
+}
+
+export type CapitalCallStatus = "OPEN" | "CLAIMED" | "REFUND_ONLY" | "REFUNDED";
+export type CapitalCallStage = "open" | "claimed" | "refund-only" | "refunded";
+export type CapitalCallCutoffMode = "rollover-window";
+export type LPPositionReceiptStatus = "ACTIVE" | "PARTIALLY_DISTRIBUTED" | "FULLY_DISTRIBUTED" | "CLOSED";
+export type FundClosingReason = "LIQUIDATED" | "CANCELLED" | "WRITTEN_OFF";
+export type FundVerificationReportSchemaVersion = "fund-verification-report/v1";
+export type FundEvidenceBundleSchemaVersion = "fund-evidence-bundle/v1";
+export type FundFinalityPayloadSchemaVersion = "fund-finality-payload/v1";
+export type LPPositionReceiptSchemaVersion = "lp-position-receipt/v2";
+export type LPPositionReceiptAttestationScheme = "bip340-sha256";
+
+export interface FundDefinition {
+  fundId: string;
+  managerEntityId: string;
+  managerXonly: string;
+  currencyAssetId: string;
+  jurisdiction?: string;
+  vintage?: string;
+}
+
+export interface CapitalCallState {
+  callId: string;
+  fundId: string;
+  lpId: string;
+  currencyAssetId: string;
+  amount: number;
+  lpXonly: string;
+  managerXonly: string;
+  status: CapitalCallStatus;
+  fundedAt?: string;
+  claimedAt?: string;
+  refundedAt?: string;
+  previousStateHash?: string | null;
+  claimCutoffHeight: number;
+}
+
+export interface LPPositionReceipt {
+  schemaVersion: LPPositionReceiptSchemaVersion;
+  positionId: string;
+  fundId: string;
+  lpId: string;
+  callId: string;
+  currencyAssetId: string;
+  lpXonly: string;
+  sequence: number;
+  committedAmount: number;
+  fundedAmount: number;
+  distributedAmount: number;
+  distributionCount: number;
+  effectiveAt: string;
+  lastDistributedAt?: string;
+  status: LPPositionReceiptStatus;
+  previousReceiptHash?: string | null;
+}
+
+export interface LPPositionReceiptAttestation {
+  positionReceiptHash: string;
+  sequence: number;
+  managerXonly: string;
+  signedAt: string;
+  signature: string;
+  scheme: LPPositionReceiptAttestationScheme;
+}
+
+export interface LPPositionReceiptEnvelope {
+  receipt: LPPositionReceipt;
+  attestation: LPPositionReceiptAttestation;
+}
+
+export interface DistributionDescriptor {
+  distributionId: string;
+  positionId: string;
+  fundId: string;
+  lpId: string;
+  assetId: string;
+  amountSat: number;
+  approvedAt: string;
+  positionReceiptHash: string;
+}
+
+export interface FundPayoutDescriptor {
+  receiverAddress: string;
+  nextOutputHash?: string;
+  nextOutputScriptHash?: string;
+  amountSat: number;
+  assetId: string;
+  requestedOutputBindingMode?: BondOutputBindingMode;
+  outputForm?: OutputForm;
+  rawOutput?: Partial<OutputRawFields>;
+  feeIndex: number;
+  nextOutputIndex: number;
+  maxFeeSat: number;
+  outputBindingMode: BondOutputBindingMode;
+}
+
+export interface FundClosingDescriptor {
+  closingId: string;
+  fundId: string;
+  lpId: string;
+  positionId: string;
+  positionReceiptHash: string;
+  finalDistributionHashes: string[];
+  closedAt: string;
+  closingReason: FundClosingReason;
+}
+
+export interface FundVerificationReport {
+  schemaVersion: FundVerificationReportSchemaVersion;
+  artifactTrust?: {
+    definition: DefinitionVerificationResult["trust"];
+    state: StateVerificationResult["trust"];
+  };
+  stateTrust?: StateVerificationResult["trust"];
+  capitalCallTrust?: {
+    capitalCallStage: CapitalCallStage;
+    cutoffMode: CapitalCallCutoffMode;
+    fundIdMatch: boolean;
+    currencyMatch: boolean;
+    managerMatch: boolean;
+    claimCutoffCommitted: boolean;
+    lpCommitted: boolean;
+    managerCommitted: boolean;
+    claimPathRuntimeAvailable: boolean;
+    refundPathRuntimeAvailable: boolean;
+    statusValid: boolean;
+  };
+  distributionTrust?: {
+    fundIdMatch: boolean;
+    lpIdMatch: boolean;
+    positionIdMatch: boolean;
+    positionReceiptHashMatch: boolean;
+    positionStatusEligible: boolean;
+  };
+  outputBindingTrust?: {
+    mode: BondOutputBindingMode;
+    requestedMode?: BondOutputBindingMode;
+    supportedForm?: OutputBindingSupportedForm;
+    nextReceiverRuntimeCommitted: boolean;
+    outputCountRuntimeBound: boolean;
+    feeIndexRuntimeBound: boolean;
+    nextOutputHashRuntimeBound?: boolean;
+    nextOutputScriptRuntimeBound: boolean;
+    amountRuntimeBound: boolean;
+    reasonCode?: OutputBindingReasonCode;
+    autoDerived?: boolean;
+    fallbackReason?: string;
+    bindingInputs?: OutputBindingInputs;
+  };
+  receiptTrust?: {
+    generated: boolean;
+    positionReceiptHash?: string;
+    positionStatus: LPPositionReceiptStatus;
+    attested: boolean;
+    attestationVerified: boolean;
+    sequence?: number;
+    sequenceMonotonic?: boolean;
+    attestingSignerMatch?: boolean;
+  };
+  closingTrust?: {
+    positionReceiptHashMatch: boolean;
+    finalDistributionHashesPresent: boolean;
+    positionStatusEligible: boolean;
+  };
+}
+
+export interface FundEvidenceBundle {
+  schemaVersion: FundEvidenceBundleSchemaVersion;
+  artifact?: SimplicityArtifact;
+  definition: {
+    canonicalJson: string;
+    hash: string;
+  };
+  capitalCall?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  positionReceipt?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  positionReceiptEnvelope?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  distribution?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  distributions?: Array<{
+    canonicalJson: string;
+    hash: string;
+  }>;
+  closing?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  trust: FundVerificationReport;
+  renderedSourceHash?: string;
+  sourceVerificationMode: "source-reloaded" | "artifact-only";
+  compiled?: {
+    program: string;
+    cmr: string;
+    contractAddress: string;
+  };
+}
+
+export interface FundFinalityPayload {
+  schemaVersion: FundFinalityPayloadSchemaVersion;
+  fundId: string;
+  lpId: string;
+  callId?: string;
+  positionId?: string;
+  definitionHash: string;
+  capitalCallStateHash?: string | null;
+  positionReceiptHash?: string | null;
+  positionReceiptEnvelopeHash?: string | null;
+  distributionHash?: string | null;
+  distributionHashes?: string[] | null;
+  closingHash?: string | null;
+  bindingMode: BondOutputBindingMode;
+  trust: FundVerificationReport;
+  trustSummary: {
+    definition?: DefinitionVerificationResult["trust"];
+    state?: StateVerificationResult["trust"];
+    bindingMode: BondOutputBindingMode;
   };
 }
 

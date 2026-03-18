@@ -1,0 +1,33 @@
+/*
+ * LP capital call refund-only contract.
+ *
+ * This artifact is reached only after the open capital call is explicitly
+ * rolled over post-cutoff. Once in this state, only the LP refund path remains.
+ */
+fn not(bit: bool) -> bool {
+    <u1>::into(jet::complement_1(<bool>::into(bit)))
+}
+
+fn require_definition_anchor() {
+    let anchored_definition_hash: u256 = 0x{{DEFINITION_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_definition_hash, zero_hash)));
+}
+
+fn require_state_anchor() {
+    let anchored_state_hash: u256 = 0x{{STATE_HASH}};
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(anchored_state_hash, zero_hash)));
+}
+
+fn refund_path(lp_signature: Signature) {
+    let lp: Pubkey = 0x{{LP_XONLY}};
+    jet::bip_0340_verify((lp, jet::sig_all_hash()), lp_signature)
+}
+
+fn main() {
+    require_definition_anchor();
+    require_state_anchor();
+    let signer_signature: Signature = witness::SIGNER_SIGNATURE;
+    refund_path(signer_signature)
+}

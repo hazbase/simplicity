@@ -1,6 +1,6 @@
 # Trusted Definitions and Issuance State
 
-This directory contains the reference JSON and `.simf` files used by the public Bond business flow and the public recursive policy templates.
+This directory contains the reference JSON and `.simf` files used by the public Bond business flow, the public LP fund settlement flow, and the public recursive policy templates.
 
 Files:
 - `bond-definition.json`: off-chain bond definition document
@@ -9,16 +9,22 @@ Files:
 - `bond-issuance-state-partial-redemption.json`: sample next-state document after a partial redemption
 - `bond-issuance-state-redeemed.json`: sample fully redeemed state document
 - `bond-issuance-anchor.simf`: custom Simplicity contract that commits both `DEFINITION_HASH` and `STATE_HASH`
+- `fund-definition.json`: off-chain LP fund definition document
+- `fund-capital-call-state.json`: off-chain capital call state document
+- `fund-capital-call-open.simf`: capital-call contract for manager claim or rollover into refund-only
+- `fund-capital-call-refund-only.simf`: capital-call contract that allows LP refund only after rollover
+- `fund-distribution-claim.simf`: one-shot LP distribution claim contract
 - `recursive-delay-required.simf`: public `required` recursive policy contract for 1tx direct hops
 - `recursive-delay-optional.simf`: public `optional` / `none` recursive policy contract for 1tx plain-or-recursive branching
 - `recursive-policy-transfer-machine.simf`: retained for internal or experimental routed regressions only
 
 ## Public Architecture
 
-The public SDK now has three layers:
+The public SDK now has four layers:
 - `sdk.outputBinding`: canonical binding support matrix and fallback behavior
 - `sdk.policies`: generic recursive covenant / transfer engine
 - `sdk.bonds`: Bond business layer for definition, issuance, redemption, settlement, closing, and evidence/finality
+- `sdk.funds`: LP fund settlement business layer for capital calls, distributions, closing, and evidence/finality
 
 We are **not** introducing `sdk.rwas` yet. The shared abstraction point today is Policy Core + output binding, not a premature RWA super-layer.
 
@@ -56,6 +62,49 @@ Those live only in:
 
 Public Bond example:
 - `./examples/show-bond-business-flow.ts`
+
+## Recommended Fund Flow
+
+1. Load or define the fund artifact with `sdk.funds.define(...)`
+2. Verify or load it with `sdk.funds.verify(...)` / `sdk.funds.load(...)`
+3. Prepare a capital call with `sdk.funds.prepareCapitalCall(...)`
+4. Inspect or execute the manager claim on the `open` artifact with:
+   - `sdk.funds.inspectCapitalCallClaim(...)`
+   - `sdk.funds.executeCapitalCallClaim(...)`
+5. Inspect or execute the rollover into the `refund-only` artifact with:
+   - `sdk.funds.inspectCapitalCallRollover(...)`
+   - `sdk.funds.executeCapitalCallRollover(...)`
+6. Inspect or execute the LP refund from the `refund-only` artifact with:
+   - `sdk.funds.inspectCapitalCallRefund(...)`
+   - `sdk.funds.executeCapitalCallRefund(...)`
+7. Verify the capital call artifact with `sdk.funds.verifyCapitalCall(...)`
+8. Sign and verify a canonical receipt envelope with:
+   - `sdk.funds.signPositionReceipt(...)`
+   - `sdk.funds.verifyPositionReceipt(...)`
+9. Prepare and verify a distribution claim with:
+   - `sdk.funds.prepareDistribution(...)`
+   - `sdk.funds.verifyDistribution(...)`
+10. Inspect or execute the LP distribution claim with:
+   - `sdk.funds.inspectDistributionClaim(...)`
+   - `sdk.funds.executeDistributionClaim(...)`
+11. Reconcile the attested receipt envelope with one or more distributions:
+   - `sdk.funds.reconcilePosition(...)`
+12. Prepare and verify descriptor-only closing with:
+   - `sdk.funds.prepareClosing(...)`
+   - `sdk.funds.verifyClosing(...)`
+13. Export evidence and finality payloads with:
+   - `sdk.funds.exportEvidence(...)`
+   - `sdk.funds.exportFinalityPayload(...)`
+
+Packaged external-consumer smoke for that same public fund flow:
+
+```bash
+npm run e2e:fund-consumer
+```
+
+Public Fund example:
+- `./examples/show-fund-claim-close-flow.ts`
+- `./examples/show-fund-refund-flow.ts`
 
 ## Recursive Policy Flow
 
@@ -109,9 +158,32 @@ Bond business flow:
 - `bond export-evidence`
 - `bond export-finality-payload`
 
+Fund business flow:
+- `fund define`
+- `fund verify`
+- `fund prepare-capital-call`
+- `fund inspect-capital-call-claim`
+- `fund execute-capital-call-claim`
+- `fund inspect-capital-call-rollover`
+- `fund execute-capital-call-rollover`
+- `fund inspect-capital-call-refund`
+- `fund execute-capital-call-refund`
+- `fund verify-capital-call`
+- `fund sign-position-receipt`
+- `fund verify-position-receipt`
+- `fund prepare-distribution`
+- `fund inspect-distribution-claim`
+- `fund execute-distribution-claim`
+- `fund verify-distribution`
+- `fund reconcile-position`
+- `fund prepare-closing`
+- `fund verify-closing`
+- `fund export-evidence`
+- `fund export-finality-payload`
+
 ## Shared Output Binding Metadata
 
-Both Policy and Bond now expose the same generalized binding metadata:
+Policy, Bond, and Fund now expose the same generalized binding metadata:
 - `supportedForm`
 - `reasonCode`
 - `autoDerived`
@@ -131,7 +203,7 @@ Current support matrix:
   - `rangeProofForm=non-empty`
 - surjection proofs are excluded from `output_hash(0)` in Elements, so they are intentionally outside the current derivation contract
 
-`sdk.outputBinding.describeSupport()` is the canonical support matrix. Policy and Bond reuse that same shared engine and expose the same reason codes / fallback semantics.
+`sdk.outputBinding.describeSupport()` is the canonical support matrix. Policy, Bond, and Fund reuse that same shared engine and expose the same reason codes / fallback semantics.
 
 Versioned schemas:
 - `PolicyTemplateManifest.manifestVersion = "policy-template-manifest/v1"`
@@ -145,8 +217,15 @@ Versioned schemas:
 - `POLICY_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:policy-testnet`
 - `npm run e2e:policy-consumer`
 - `npm run e2e:bond-consumer`
+- `npm run e2e:fund-local`
+- `npm run e2e:fund-consumer`
 - `BOND_OUTPUT_BINDING_MODE=script-bound npm run e2e:bond-testnet`
 - `BOND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:bond-testnet`
+- `FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet`
+- `FUND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:fund-testnet`
+- `FUND_FLOW_MODE=refund FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet`
+- `FUND_OUTPUT_BINDING_MODE=script-bound FUND_DISTRIBUTION_AMOUNTS_SAT=2000,4000 ... npm run e2e:fund-testnet`
+- `FUND_OUTPUT_BINDING_MODE=descriptor-bound FUND_DISTRIBUTION_AMOUNTS_SAT=2000,4000 ... npm run e2e:fund-testnet`
 
 Latest Bond testnet reruns:
 - `script-bound`
@@ -156,8 +235,16 @@ Latest Bond testnet reruns:
   - funding txid: `72d0015b51a74c3cc81f7abb74a4f6f894c7f7bbd1e83647939459d7b40e504f`
   - execution txid: `85e0830a7b2ba33ca37d5f11bd981938418fc472e98657095680ada71387974c`
 
-Trust model summary:
-- JSON bodies stay off-chain
-- canonical SHA-256 hashes are anchored in artifacts and, for committed paths, in contract constants
-- output binding behavior is described centrally by `sdk.outputBinding.describeSupport()`
-- Bond and Policy share the same fallback semantics and reason codes
+Fund security model summary:
+- on-chain enforced:
+  - `open` capital call allows manager claim only
+  - `refund-only` capital call allows LP refund only
+  - claim cutoff height is committed into the `open` artifact
+- off-chain attested:
+  - `LPPositionReceiptEnvelope`
+  - manager attestation over receipt hash and sequence
+- operationally enforced:
+  - watcher/keeper executes rollover after cutoff so refund-only semantics become active
+
+Current fund runtime truth, latest txids, and rerun commands live in:
+- `../design/fund-runtime-validation.md`

@@ -1,0 +1,11 @@
+{
+  "callId": "CALL-001",
+  "fundId": "FUND-2026-ALPHA",
+  "lpId": "lp-a",
+  "currencyAssetId": "bitcoin",
+  "amount": 6000,
+  "lpXonly": "f9308a019258c3106ac5d2d1c1d7d7f3c2e5f5b7a9e3d5f2c1a6b8c9d0e1f2a3",
+  "managerXonly": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  "status": "OPEN",
+  "claimCutoffHeight": 2345678
+}

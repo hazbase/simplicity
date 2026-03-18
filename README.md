@@ -11,7 +11,7 @@ This SDK is designed to help Node developers get productive quickly, but it is s
 
 Consumer validation note:
 - The published npm package has been validated from a fresh external Node.js project using `npm install @hazbase/simplicity`.
-- Verified flows include preset-based contract execution, custom `.simf` execution, and relayer-backed gasless execution on `liquidtestnet`.
+- Verified flows include preset-based contract execution, custom `.simf` execution, relayer-backed gasless execution, and LP-fund business-flow validation on `liquidtestnet`.
 
 ## Recursive Policy SDK
 
@@ -212,6 +212,211 @@ Reproducible policy confidence commands:
 - `POLICY_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:policy-testnet`
 - `npm run e2e:policy-consumer`
 
+## LP Fund Settlement Layer
+
+The SDK now also exposes `sdk.funds` as a dedicated business layer for **LP fund settlement on Liquid**.
+
+Security-first vNext model:
+- capital calls are explicit `open -> rollover -> refund-only`
+- manager claim exists only on the `open` artifact
+- LP refund exists only on the `refund-only` artifact
+- `LPPositionReceipt` is an off-chain canonical document wrapped in a manager-attested envelope
+- closing accepts only the latest attested receipt envelope
+
+This layer is intentionally narrower than a full fund-admin system. It focuses on:
+- capital call funding / manager claim / rollover / LP refund
+- signed `LPPositionReceiptEnvelope` generation and reconciliation
+- later one-shot distribution claim contracts
+- finality / close-out evidence
+
+It does **not** introduce `sdk.rwas`. The public architecture remains:
+- `sdk.outputBinding`: shared binding support / fallback contract
+- `sdk.policies`: generic recursive covenant engine
+- `sdk.bonds`: credit / bond business layer
+- `sdk.funds`: LP fund settlement business layer
+
+Main entrypoints:
+- `sdk.funds.define(...)`
+- `sdk.funds.verify(...)`
+- `sdk.funds.load(...)`
+- `sdk.funds.prepareCapitalCall(...)`
+- `sdk.funds.inspectCapitalCallClaim(...)`
+- `sdk.funds.executeCapitalCallClaim(...)`
+- `sdk.funds.inspectCapitalCallRollover(...)`
+- `sdk.funds.executeCapitalCallRollover(...)`
+- `sdk.funds.inspectCapitalCallRefund(...)`
+- `sdk.funds.executeCapitalCallRefund(...)`
+- `sdk.funds.verifyCapitalCall(...)`
+- `sdk.funds.signPositionReceipt(...)`
+- `sdk.funds.verifyPositionReceipt(...)`
+- `sdk.funds.prepareDistribution(...)`
+- `sdk.funds.inspectDistributionClaim(...)`
+- `sdk.funds.executeDistributionClaim(...)`
+- `sdk.funds.verifyDistribution(...)`
+- `sdk.funds.reconcilePosition(...)`
+- `sdk.funds.prepareClosing(...)`
+- `sdk.funds.verifyClosing(...)`
+- `sdk.funds.exportEvidence(...)`
+- `sdk.funds.exportFinalityPayload(...)`
+
+Reference examples:
+- [show-fund-claim-close-flow.ts](./examples/show-fund-claim-close-flow.ts)
+- [show-fund-refund-flow.ts](./examples/show-fund-refund-flow.ts)
+- [fund-definition.json](./docs/definitions/fund-definition.json)
+- [fund-capital-call-state.json](./docs/definitions/fund-capital-call-state.json)
+
+### Fund Quickstart
+
+The intended split for LP fund workflows is:
+
+- off-chain:
+  - KYC/AML
+  - subscription docs
+  - capital account / waterfall / NAV
+  - allocation calculation
+- on-chain SDK:
+  - capital call funding / claim / rollover / refund
+  - distribution payout
+  - finality / close-out evidence
+
+Minimal flow:
+
+```ts
+const capitalCall = await sdk.funds.prepareCapitalCall({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  capitalCallPath: "./docs/definitions/fund-capital-call-state.json",
+});
+
+const initialReceipt = buildLPPositionReceipt({
+  positionId: "POS-001",
+  capitalCall: capitalCall.capitalCallValue,
+  effectiveAt: "2026-03-18T00:00:00Z",
+});
+
+const signedInitialReceipt = await sdk.funds.signPositionReceipt({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  positionReceiptValue: initialReceipt,
+  signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkeyHex },
+  signedAt: "2026-03-18T00:00:00Z",
+});
+
+const firstDistribution = await sdk.funds.prepareDistribution({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
+  distributionId: "DIST-001",
+  assetId: capitalCall.capitalCallValue.currencyAssetId,
+  amountSat: 2000,
+  approvedAt: "2027-03-18T00:00:00Z",
+});
+
+const afterFirst = await sdk.funds.reconcilePosition({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  positionReceiptValue: signedInitialReceipt.positionReceiptEnvelope,
+  distributionValue: firstDistribution.distributionValue,
+  signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkeyHex },
+  signedAt: "2027-03-18T00:00:00Z",
+});
+
+const secondDistribution = await sdk.funds.prepareDistribution({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  distributionId: "DIST-002",
+  assetId: capitalCall.capitalCallValue.currencyAssetId,
+  amountSat: initialReceipt.fundedAmount - 2000,
+  approvedAt: "2028-03-18T00:00:00Z",
+});
+
+const afterSecond = await sdk.funds.reconcilePosition({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  positionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  distributionValue: secondDistribution.distributionValue,
+  signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkeyHex },
+  signedAt: "2028-03-18T00:00:00Z",
+});
+
+const closing = await sdk.funds.prepareClosing({
+  definitionPath: "./docs/definitions/fund-definition.json",
+  positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+  closingId: "CLOSE-001",
+  finalDistributionHashes: [
+    firstDistribution.distributionSummary.hash,
+    secondDistribution.distributionSummary.hash,
+  ],
+  closedAt: "2029-03-18T00:00:00Z",
+});
+```
+
+The split examples are:
+- `show-fund-claim-close-flow.ts`: receipt envelope -> two distributions -> manager-attested reconciliation -> closing/finality
+- `show-fund-refund-flow.ts`: open capital call -> rollover -> refund-only evidence/finality
+
+The matching CLI flow is:
+- `fund define`
+- `fund verify`
+- `fund prepare-capital-call`
+- `fund inspect-capital-call-claim`
+- `fund execute-capital-call-claim`
+- `fund inspect-capital-call-rollover`
+- `fund execute-capital-call-rollover`
+- `fund inspect-capital-call-refund`
+- `fund execute-capital-call-refund`
+- `fund verify-capital-call`
+- `fund sign-position-receipt`
+- `fund verify-position-receipt`
+- `fund prepare-distribution`
+- `fund inspect-distribution-claim`
+- `fund execute-distribution-claim`
+- `fund verify-distribution`
+- `fund reconcile-position`
+- `fund prepare-closing`
+- `fund verify-closing`
+- `fund export-evidence`
+- `fund export-finality-payload`
+
+Reproducible fund confidence commands:
+- `npm run e2e:fund-local`
+- `npm run e2e:fund-consumer`
+- `FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet`
+- `FUND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:fund-testnet`
+- `FUND_FLOW_MODE=refund FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet`
+- `FUND_OUTPUT_BINDING_MODE=script-bound FUND_DISTRIBUTION_AMOUNTS_SAT=2000,4000 FUND_DISTRIBUTION_IDS=DIST-...-1,DIST-...-2 FUND_APPROVED_ATS=2027-03-18T00:00:00Z,2028-03-18T00:00:00Z npm run e2e:fund-testnet`
+- `FUND_OUTPUT_BINDING_MODE=descriptor-bound FUND_DISTRIBUTION_AMOUNTS_SAT=2000,4000 FUND_DISTRIBUTION_IDS=DIST-...-1,DIST-...-2 FUND_APPROVED_ATS=2027-03-18T00:00:00Z,2028-03-18T00:00:00Z npm run e2e:fund-testnet`
+
+Security notes for `sdk.funds`:
+- on-chain enforced:
+  - `open` capital call allows manager claim only
+  - `refund-only` capital call allows LP refund only
+  - cutoff height is committed into the `open` artifact
+  - output binding uses the shared `script-bound` / `descriptor-bound` / `raw-output-v1` engine
+- off-chain attested:
+  - `LPPositionReceiptEnvelope`
+  - manager attestation over receipt hash and sequence
+- operationally enforced:
+  - watcher/keeper monitors `open` capital calls through `claimCutoffHeight`
+  - watcher/keeper submits rollover after cutoff
+  - LP refund becomes operationally available only after rollover confirmation
+
+Latest fund testnet reruns:
+
+| Flow | Funding txid | Main execution txid(s) | Closing / receipt | Rerun command |
+| --- | --- | --- | --- | --- |
+| `script-bound` claim-close | `a488a5c6e7c56ecca8d5860bf495590d38cfe8087f678f5664241b8eb90396de` | claim `43974a18c048f67f3399b614ea476ffb87c4622d8083636d1aeacbb51747d94d`; distributions `90fb3abdb000d9f66a18b1e2061fa06b56a51fe64513d358c47cc992c374e209`, `0644820b7fee4c11a9a66dbd1a14733ed2420435449717f4895d589f55b05b30` | receipt `f1f294c0f33405f31abbdd8a3a258e57c614bd381b61a7fba2ae420a35e77c70`; closing `19dfd60dfe04cbe1f145a2ab112ef5cf30a087e084837fa7bcce3ed80df72a2a` | `FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet` |
+| `descriptor-bound` claim-close | `201b66c3843b9999703b08d242c547ca1d1f35619ca99e916d93e4ed70338bc6` | claim `c27621a27cb3b99b4d960cfa4be98de925beed7c3a7bd799fd3f88a3cb680762`; distributions `d4066986e90a9faa000032198307955583e318c0afd09d98691db7b07dc1b022`, `bbfe830790ef5a86a5595d0dccdd2a344efc7d3eebe7a597be1f2a5c2330dabb` | receipt `05b3e4b2c33518b22bd28939cef36972e7fe0c7273b24a6867fba40a0e374fce`; closing `b1ff75e989628130ec56e753f7bc48cc0648b82272c90dfee03f7582879835dd` | `FUND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:fund-testnet` |
+| `script-bound` refund | `3adf9025c4656d099752f2e5f43738495fbad712177b75f9330c05273eff12ff` | rollover `8b1224e808ad9824d7bf85924a07d62c75c038987a4163b2e450c455b962ed9d`; refund `6be225448ff062e1f2e8992cf3319601098b7b19edb0ea27823487e9a881f415` | refund-only settlement | `FUND_FLOW_MODE=refund FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet` |
+
+Current runtime truth for claim-close / refund commands, latest txids, and rerun guidance lives in:
+- [docs/design/fund-runtime-validation.md](./docs/design/fund-runtime-validation.md)
+
+Latest Bond testnet reruns:
+
+| Mode | Funding txid | Execution txid | Rerun command |
+| --- | --- | --- | --- |
+| `script-bound` | `1c982864ef6c83da4eb7f8018edc4cbdff439db7c6366984b3f85ad4937e2c4f` | `d659c4bdce6b32650ff58ac37ccaa55209a9f04d5dc4595f956fad034089f580` | `BOND_OUTPUT_BINDING_MODE=script-bound npm run e2e:bond-testnet` |
+| `descriptor-bound` | `72d0015b51a74c3cc81f7abb74a4f6f894c7f7bbd1e83647939459d7b40e504f` | `85e0830a7b2ba33ca37d5f11bd981938418fc472e98657095680ada71387974c` | `BOND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:bond-testnet` |
+
+For current fund runtime scope and caveats, see:
+- [docs/design/fund-runtime-validation.md](./docs/design/fund-runtime-validation.md)
+
 ## Validated Scenarios
 
 The published package has been exercised from a blank external consumer project. For the full reproducible fixture, see [docs/consumer-validation/README.md](./docs/consumer-validation/README.md).
@@ -223,6 +428,7 @@ The published package has been exercised from a blank external consumer project.
 | Preset flow (`p2pkLockHeight`) | Success | compile -> fund -> inspect -> execute(`broadcast=true`) |
 | Custom `.simf` flow | Success | `compileFromFile(...)` -> fund -> inspect -> execute(`broadcast=true`) |
 | Relayer-backed gasless flow | Success | `executeGasless(...)` succeeded from the external project |
+| LP fund business flow | Success | packaged `sdk.funds` consumer smoke covers capital call, distribution, and finality |
 
 ## Who This Is For
 
@@ -362,14 +568,16 @@ The recommended Bond issuance shape still captures:
 
 ## Public Architecture
 
-The SDK is now organized around three public layers:
+The SDK is now organized around four public layers:
 - `sdk.outputBinding`: cross-domain output-binding support matrix and fallback behavior
 - `sdk.policies`: generic recursive covenant / transfer engine
 - `sdk.bonds`: Bond business layer built on Policy Core primitives and shared output binding
+- `sdk.funds`: LP fund settlement business layer for capital calls, distributions, closing, and finality
 
 This means:
 - use `sdk.policies` when you want a generic constrained-transfer engine,
 - use `sdk.bonds` when you want bond definition / issuance / redemption / settlement / closing / evidence semantics,
+- use `sdk.funds` when you want LP capital call / distribution / closing semantics,
 - use `sdk.outputBinding.describeSupport()` when you want the canonical explanation of supported forms, manual hash paths, and fallback behavior,
 - use `sdk.outputBinding.evaluateSupport(...)` when you want the deterministic answer for one concrete output-form scenario.
 

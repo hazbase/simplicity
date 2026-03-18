@@ -107,6 +107,17 @@ function getArtifactLocktime(artifact: SimplicityArtifact): number {
   return 0;
 }
 
+function getEffectiveLocktime(
+  artifact: SimplicityArtifact,
+  input: InspectCallInput | ExecuteCallInput | GaslessExecuteInput
+): number {
+  const candidate = input.locktimeHeight;
+  if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
+    return Math.trunc(candidate);
+  }
+  return getArtifactLocktime(artifact);
+}
+
 function parseSimcWitness(output: string): string {
   const lines = output
     .split("\n")
@@ -414,10 +425,11 @@ async function buildExecutionState(
     },
   ];
   const outputsJson = [{ [recipientAddress]: satToBtcNumber(sendSat) }, { fee: satToBtcNumber(feeSat) }];
+  const locktime = getEffectiveLocktime(artifact, input);
   const pset1 = await callRpc<string>(
     config,
     "createpsbt",
-    [inputsJson, outputsJson, getArtifactLocktime(artifact), true],
+    [inputsJson, outputsJson, locktime, true],
     input.wallet
   );
   const psetUpdated = await callRpc<string>(config, "utxoupdatepsbt", [pset1], input.wallet);
@@ -456,7 +468,7 @@ async function buildExecutionState(
     cmr: artifact.compiled.cmr,
     internalKey: artifact.compiled.internalKey,
     program: artifact.compiled.program,
-    minHeight: getArtifactLocktime(artifact) || undefined,
+    minHeight: locktime || undefined,
   });
   const { canonicalJson: summaryCanonicalJson, hash: summaryHash } = summarize(summary);
 
@@ -626,10 +638,11 @@ export async function executeGaslessContractCall(
     { txid: contractUtxo.txid, vout: contractUtxo.vout, sequence: DEFAULT_SEQUENCE },
     { txid: sponsorInput.txid, vout: sponsorInput.vout, sequence: DEFAULT_SEQUENCE },
   ];
+  const locktime = getEffectiveLocktime(artifact, input);
   const pset1 = await callRpc<string>(
     config,
     "createpsbt",
-    [inputsJson, outputs, getArtifactLocktime(artifact), true],
+    [inputsJson, outputs, locktime, true],
     wallet
   );
   const psetUpdated = await callRpc<string>(config, "utxoupdatepsbt", [pset1], wallet);
@@ -665,7 +678,7 @@ export async function executeGaslessContractCall(
     cmr: artifact.compiled.cmr,
     internalKey: artifact.compiled.internalKey,
     program: artifact.compiled.program,
-    minHeight: getArtifactLocktime(artifact) || undefined,
+    minHeight: locktime || undefined,
     expectedLiquidReceiver: recipientAddress,
   });
   const { canonicalJson: summaryCanonicalJson, hash: summaryHash } = summarize(summary);

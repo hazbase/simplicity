@@ -22,12 +22,18 @@ Validated scenarios:
 | Preset flow (`p2pkLockHeight`) | Success | compile -> fund -> inspect -> execute(`broadcast=true`) |
 | Custom `.simf` flow | Success | `compileFromFile(...)` -> fund -> inspect -> execute(`broadcast=true`) |
 | Relayer-backed gasless flow | Success | `executeGasless(...)` from the external project |
+| LP fund business flow | Success | `sdk.funds` open capital call / signed receipt envelope / two distributions / closing / finality smoke |
 
 ## Verified Transaction IDs
 
 - Preset flow broadcast txid: `e45bf8b2261eb04f6d4ccc4cd85e95f2c65b36d18fc77844de6ffb1a89950cda`
 - Custom `.simf` broadcast txid: `5f203d8049be3673903b264ae8bbbed008df785839d75aecf5c8a63bc9a4b296`
 - Gasless broadcast txid: `b6c006ab6585e68381119ef94dd5c74c4a8fd916f3203d4c93c4267b50c1feed`
+
+Packaged consumer smokes:
+- `npm run e2e:policy-consumer`
+- `npm run e2e:bond-consumer`
+- `npm run e2e:fund-consumer`
 
 ## Files In This Directory
 
@@ -36,6 +42,7 @@ Validated scenarios:
 - `test-preset-flow.mjs`: built-in preset happy path
 - `test-custom-flow.mjs`: custom `.simf` happy path
 - `test-gasless-flow.mjs`: relayer-backed gasless path
+- `scripts/e2e-fund-consumer.mjs`: packaged LP fund business-flow smoke in this repo, including signed receipt envelopes and two reconciliations before closing
 
 ## How To Reproduce
 
@@ -71,3 +78,4 @@ These scripts assume:
 - Built-in presets are the easiest onboarding path.
 - Custom `.simf` authoring is also viable from the published package.
 - Gasless execution works, but it depends on a trusted relayer and a wallet-capable RPC setup.
+- The packaged business-layer surfaces also work from a blank external project, including `sdk.funds` with signed receipt envelopes.

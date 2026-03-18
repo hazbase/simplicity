@@ -45,6 +45,30 @@ import {
   verifyRedemption,
 } from "../domain/bond";
 import {
+  define as defineFund,
+  verify as verifyFund,
+  load as loadFund,
+  prepareCapitalCall,
+  inspectCapitalCallClaim,
+  executeCapitalCallClaim,
+  inspectCapitalCallRollover,
+  executeCapitalCallRollover,
+  inspectCapitalCallRefund,
+  executeCapitalCallRefund,
+  verifyCapitalCall,
+  signPositionReceipt,
+  verifyPositionReceipt,
+  prepareDistribution,
+  reconcilePosition,
+  inspectDistributionClaim,
+  executeDistributionClaim,
+  verifyDistribution,
+  prepareClosing as prepareFundClosing,
+  verifyClosing as verifyFundClosing,
+  exportEvidence as exportFundEvidence,
+  exportFinalityPayload as exportFundFinalityPayload,
+} from "../domain/fund";
+import {
   buildPolicyOutputDescriptor,
   describePolicyTemplate,
   listPolicyTemplates,
@@ -102,6 +126,30 @@ export class SimplicityClient {
     exportEvidence: (input: Parameters<typeof exportEvidence>[1]) => Promise<BondEvidenceBundle>;
     exportFinalityPayload: (input: Parameters<typeof exportFinalityPayload>[1]) => ReturnType<typeof exportFinalityPayload>;
   };
+  public readonly funds: {
+    define: (input: Parameters<typeof defineFund>[1]) => ReturnType<typeof defineFund>;
+    verify: (input: Parameters<typeof verifyFund>[1]) => ReturnType<typeof verifyFund>;
+    load: (input: Parameters<typeof loadFund>[1]) => ReturnType<typeof loadFund>;
+    prepareCapitalCall: (input: Parameters<typeof prepareCapitalCall>[1]) => ReturnType<typeof prepareCapitalCall>;
+    inspectCapitalCallClaim: (input: Parameters<typeof inspectCapitalCallClaim>[1]) => ReturnType<typeof inspectCapitalCallClaim>;
+    executeCapitalCallClaim: (input: Parameters<typeof executeCapitalCallClaim>[1]) => ReturnType<typeof executeCapitalCallClaim>;
+    inspectCapitalCallRollover: (input: Parameters<typeof inspectCapitalCallRollover>[1]) => ReturnType<typeof inspectCapitalCallRollover>;
+    executeCapitalCallRollover: (input: Parameters<typeof executeCapitalCallRollover>[1]) => ReturnType<typeof executeCapitalCallRollover>;
+    inspectCapitalCallRefund: (input: Parameters<typeof inspectCapitalCallRefund>[1]) => ReturnType<typeof inspectCapitalCallRefund>;
+    executeCapitalCallRefund: (input: Parameters<typeof executeCapitalCallRefund>[1]) => ReturnType<typeof executeCapitalCallRefund>;
+    verifyCapitalCall: (input: Parameters<typeof verifyCapitalCall>[1]) => ReturnType<typeof verifyCapitalCall>;
+    signPositionReceipt: (input: Parameters<typeof signPositionReceipt>[1]) => ReturnType<typeof signPositionReceipt>;
+    verifyPositionReceipt: (input: Parameters<typeof verifyPositionReceipt>[1]) => ReturnType<typeof verifyPositionReceipt>;
+    prepareDistribution: (input: Parameters<typeof prepareDistribution>[1]) => ReturnType<typeof prepareDistribution>;
+    reconcilePosition: (input: Parameters<typeof reconcilePosition>[1]) => ReturnType<typeof reconcilePosition>;
+    inspectDistributionClaim: (input: Parameters<typeof inspectDistributionClaim>[1]) => ReturnType<typeof inspectDistributionClaim>;
+    executeDistributionClaim: (input: Parameters<typeof executeDistributionClaim>[1]) => ReturnType<typeof executeDistributionClaim>;
+    verifyDistribution: (input: Parameters<typeof verifyDistribution>[1]) => ReturnType<typeof verifyDistribution>;
+    prepareClosing: (input: Parameters<typeof prepareFundClosing>[1]) => ReturnType<typeof prepareFundClosing>;
+    verifyClosing: (input: Parameters<typeof verifyFundClosing>[1]) => ReturnType<typeof verifyFundClosing>;
+    exportEvidence: (input: Parameters<typeof exportFundEvidence>[1]) => ReturnType<typeof exportFundEvidence>;
+    exportFinalityPayload: (input: Parameters<typeof exportFundFinalityPayload>[1]) => ReturnType<typeof exportFundFinalityPayload>;
+  };
 
   constructor(public readonly config: SimplicityClientConfig) {
     this.rpc = new ElementsRpcClient(config.rpc);
@@ -144,6 +192,30 @@ export class SimplicityClient {
       verifyClosing: async (input) => verifyClosing(this, input),
       exportEvidence: async (input) => exportEvidence(this, input),
       exportFinalityPayload: async (input) => exportFinalityPayload(this, input),
+    };
+    this.funds = {
+      define: async (input) => defineFund(this, input),
+      verify: async (input) => verifyFund(this, input),
+      load: async (input) => loadFund(this, input),
+      prepareCapitalCall: async (input) => prepareCapitalCall(this, input),
+      inspectCapitalCallClaim: async (input) => inspectCapitalCallClaim(this, input),
+      executeCapitalCallClaim: async (input) => executeCapitalCallClaim(this, input),
+      inspectCapitalCallRollover: async (input) => inspectCapitalCallRollover(this, input),
+      executeCapitalCallRollover: async (input) => executeCapitalCallRollover(this, input),
+      inspectCapitalCallRefund: async (input) => inspectCapitalCallRefund(this, input),
+      executeCapitalCallRefund: async (input) => executeCapitalCallRefund(this, input),
+      verifyCapitalCall: async (input) => verifyCapitalCall(this, input),
+      signPositionReceipt: async (input) => signPositionReceipt(this, input),
+      verifyPositionReceipt: async (input) => verifyPositionReceipt(this, input),
+      prepareDistribution: async (input) => prepareDistribution(this, input),
+      reconcilePosition: async (input) => reconcilePosition(this, input),
+      inspectDistributionClaim: async (input) => inspectDistributionClaim(this, input),
+      executeDistributionClaim: async (input) => executeDistributionClaim(this, input),
+      verifyDistribution: async (input) => verifyDistribution(this, input),
+      prepareClosing: async (input) => prepareFundClosing(this, input),
+      verifyClosing: async (input) => verifyFundClosing(this, input),
+      exportEvidence: async (input) => exportFundEvidence(this, input),
+      exportFinalityPayload: async (input) => exportFundFinalityPayload(this, input),
     };
   }
 
