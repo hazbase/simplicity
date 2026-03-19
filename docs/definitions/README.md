@@ -2,6 +2,8 @@
 
 This directory contains the reference JSON and `.simf` files used by the public Bond business flow, the public LP fund settlement flow, the public recursive policy templates, and the repayment-first receivable business layer.
 
+Use this page as the public deep-dive companion to the top-level `README.md`: the main README is the onboarding entrypoint, while this document goes deeper into domain flows, sample JSON, and reference `.simf` assets.
+
 Files:
 - `bond-definition.json`: off-chain bond definition document
 - `bond-anchor.simf`: custom Simplicity contract that commits `DEFINITION_HASH`
