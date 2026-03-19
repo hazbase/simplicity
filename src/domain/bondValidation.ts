@@ -1,5 +1,6 @@
-import { stableStringify, sha256HexUtf8 } from "../core/summary";
 import { ValidationError } from "../core/errors";
+import { verifyHashLinkedLineage } from "../core/lineage";
+import { stableStringify, sha256HexUtf8 } from "../core/summary";
 import {
   BondDefinition,
   BondIssuanceState,
@@ -353,12 +354,18 @@ export function validateBondStateTransition(
     });
   }
 
-  const expectedOutstanding = previous.outstandingPrincipal - transition.amount;
-  const expectedRedeemed = previous.redeemedPrincipal + transition.amount;
-  result.redemptionArithmeticValid =
-    expectedOutstanding >= 0 &&
-    next.outstandingPrincipal === expectedOutstanding &&
-    next.redeemedPrincipal === expectedRedeemed;
+  if (previous.status === "REDEEMED" && next.status === "CLOSED") {
+    result.redemptionArithmeticValid =
+      next.outstandingPrincipal === previous.outstandingPrincipal &&
+      next.redeemedPrincipal === previous.redeemedPrincipal;
+  } else {
+    const expectedOutstanding = previous.outstandingPrincipal - transition.amount;
+    const expectedRedeemed = previous.redeemedPrincipal + transition.amount;
+    result.redemptionArithmeticValid =
+      expectedOutstanding >= 0 &&
+      next.outstandingPrincipal === expectedOutstanding &&
+      next.redeemedPrincipal === expectedRedeemed;
+  }
   if (!result.redemptionArithmeticValid) {
     throw new ValidationError("Bond issuance redemption arithmetic is invalid", {
       code: "BOND_REDEMPTION_ARITHMETIC_INVALID",
@@ -366,9 +373,12 @@ export function validateBondStateTransition(
   }
 
   result.statusProgressionValid =
-    (previous.status === "ISSUED" || previous.status === "PARTIALLY_REDEEMED") &&
-    ((next.status === "PARTIALLY_REDEEMED" && next.outstandingPrincipal > 0) ||
-      ((next.status === "REDEEMED" || next.status === "CLOSED") && next.outstandingPrincipal === 0));
+    (
+      ((previous.status === "ISSUED" || previous.status === "PARTIALLY_REDEEMED") &&
+        ((next.status === "PARTIALLY_REDEEMED" && next.outstandingPrincipal > 0) ||
+          (next.status === "REDEEMED" && next.outstandingPrincipal === 0))) ||
+      (previous.status === "REDEEMED" && next.status === "CLOSED" && next.outstandingPrincipal === 0)
+    );
   if (!result.statusProgressionValid) {
     throw new ValidationError("Bond issuance status progression is invalid", {
       code: "BOND_STATUS_TRANSITION_INVALID",
@@ -452,4 +462,66 @@ export function buildClosedBondIssuanceState(input: {
     closingReason: input.closingReason,
     finalSettlementDescriptorHash: input.finalSettlementDescriptorHash,
   });
+}
+
+export function verifyBondIssuanceHistory(input: {
+  history: BondIssuanceState[];
+}) {
+  if (input.history.length === 0) {
+    throw new ValidationError("bond issuance history must include at least one state", {
+      code: "BOND_ISSUANCE_HISTORY_REQUIRED",
+    });
+  }
+
+  const history = input.history.map((state) => validateBondIssuanceState(state));
+  const lineage = verifyHashLinkedLineage({
+    entries: history,
+    summarize: summarizeBondIssuanceState,
+    getPreviousHash: (state) => state.previousStateHash,
+    isGenesis: (state) => state.status === "ISSUED" && !state.previousStateHash,
+    consistencyChecks: {
+      issuanceIdConsistent: (state, first) => state.issuanceId === first.issuanceId,
+      bondIdConsistent: (state, first) => state.bondId === first.bondId,
+      currencyConsistent: (state, first) => state.currencyAssetId === first.currencyAssetId,
+      controllerConsistent: (state, first) => state.controllerXonly === first.controllerXonly,
+      issuerEntityConsistent: (state, first) => state.issuerEntityId === first.issuerEntityId,
+      issuedPrincipalConsistent: (state, first) => state.issuedPrincipal === first.issuedPrincipal,
+    },
+  });
+
+  const transitionChecks = history.slice(1).map((state, index) => validateBondStateTransition(history[index]!, state));
+  const allPreviousStateHashMatch = transitionChecks.every((check) => check.previousStateHashMatch);
+  const allRedemptionArithmeticValid = transitionChecks.every((check) => check.redemptionArithmeticValid);
+  const allStatusProgressionValid = transitionChecks.every((check) => check.statusProgressionValid);
+  const allTransitionIdentitiesMatch = transitionChecks.every((check) => (
+    check.issuanceIdMatch
+    && check.bondIdMatch
+    && check.currencyMatch
+    && check.controllerMatch
+    && check.issuerEntityMatch
+    && check.issuedPrincipalMatch
+  ));
+
+  return {
+    chainLength: history.length,
+    latestStatus: history.at(-1)?.status,
+    startsAtGenesis: lineage.startsAtGenesis,
+    previousStateHashLinked: lineage.previousHashLinked,
+    issuanceIdConsistent: lineage.consistency.issuanceIdConsistent,
+    bondIdConsistent: lineage.consistency.bondIdConsistent,
+    currencyConsistent: lineage.consistency.currencyConsistent,
+    controllerConsistent: lineage.consistency.controllerConsistent,
+    issuerEntityConsistent: lineage.consistency.issuerEntityConsistent,
+    issuedPrincipalConsistent: lineage.consistency.issuedPrincipalConsistent,
+    allPreviousStateHashMatch,
+    allRedemptionArithmeticValid,
+    allStatusProgressionValid,
+    allTransitionIdentitiesMatch,
+    fullHistoryVerified: lineage.fullLineageVerified
+      && allPreviousStateHashMatch
+      && allRedemptionArithmeticValid
+      && allStatusProgressionValid
+      && allTransitionIdentitiesMatch,
+    transitionChecks,
+  };
 }

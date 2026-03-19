@@ -1,0 +1,13 @@
+{
+  "claimId": "REC-001-FUNDING-CLAIM",
+  "claimKind": "FUNDING",
+  "receivableId": "REC-001",
+  "currentStateHash": "7a61cc669844f3fd96165c99e3ca42cfae916e824dec4d60e51d56ef574e041a",
+  "currentStatus": "FUNDED",
+  "payerEntityId": "fund-1",
+  "payeeEntityId": "originator-1",
+  "claimantXonly": "1111111111111111111111111111111111111111111111111111111111111111",
+  "currencyAssetId": "bitcoin",
+  "amountSat": 10000,
+  "eventTimestamp": "2027-01-02T00:00:00Z"
+}

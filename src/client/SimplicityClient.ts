@@ -10,6 +10,7 @@ import {
   OutputBindingSupportEvaluation,
   OutputBindingSupportMatrix,
   PolicyEvidenceBundle,
+  ReceivableEvidenceBundle,
   PolicyTemplateManifestValidationResult,
   DefinitionInput,
   DefinitionVerificationResult,
@@ -41,6 +42,7 @@ import {
   issue,
   load,
   verify,
+  verifyIssuanceHistory,
   verifyClosing,
   verifyRedemption,
 } from "../domain/bond";
@@ -58,6 +60,7 @@ import {
   verifyCapitalCall,
   signPositionReceipt,
   verifyPositionReceipt,
+  verifyPositionReceiptChain,
   prepareDistribution,
   reconcilePosition,
   inspectDistributionClaim,
@@ -83,6 +86,30 @@ import {
   verifyState as verifyPolicyState,
   verifyTransfer as verifyPolicyTransfer,
 } from "../domain/policies";
+import {
+  define as defineReceivable,
+  exportEvidence as exportReceivableEvidence,
+  exportFinalityPayload as exportReceivableFinalityPayload,
+  executeFundingClaim as executeReceivableFundingClaim,
+  executeRepaymentClaim as executeReceivableRepaymentClaim,
+  inspectFundingClaim as inspectReceivableFundingClaim,
+  inspectRepaymentClaim as inspectReceivableRepaymentClaim,
+  load as loadReceivable,
+  prepareClosing as prepareReceivableClosing,
+  prepareFundingClaim as prepareReceivableFundingClaim,
+  prepareFunding as prepareReceivableFunding,
+  prepareRepaymentClaim as prepareReceivableRepaymentClaim,
+  prepareRepayment as prepareReceivableRepayment,
+  prepareWriteOff as prepareReceivableWriteOff,
+  verify as verifyReceivable,
+  verifyClosing as verifyReceivableClosing,
+  verifyFundingClaim as verifyReceivableFundingClaim,
+  verifyFunding as verifyReceivableFunding,
+  verifyRepaymentClaim as verifyReceivableRepaymentClaim,
+  verifyRepayment as verifyReceivableRepayment,
+  verifyStateHistory as verifyReceivableStateHistory,
+  verifyWriteOff as verifyReceivableWriteOff,
+} from "../domain/receivable";
 
 export class SimplicityClient {
   public readonly rpc: ElementsRpcClient;
@@ -111,6 +138,7 @@ export class SimplicityClient {
   public readonly bonds: {
     define: (input: Parameters<typeof define>[1]) => ReturnType<typeof define>;
     verify: (input: Parameters<typeof verify>[1]) => ReturnType<typeof verify>;
+    verifyIssuanceHistory: (input: Parameters<typeof verifyIssuanceHistory>[1]) => ReturnType<typeof verifyIssuanceHistory>;
     load: (input: Parameters<typeof load>[1]) => ReturnType<typeof load>;
     issue: (input: Parameters<typeof issue>[1]) => ReturnType<typeof issue>;
     prepareRedemption: (input: Parameters<typeof prepareRedemption>[1]) => ReturnType<typeof prepareRedemption>;
@@ -140,6 +168,7 @@ export class SimplicityClient {
     verifyCapitalCall: (input: Parameters<typeof verifyCapitalCall>[1]) => ReturnType<typeof verifyCapitalCall>;
     signPositionReceipt: (input: Parameters<typeof signPositionReceipt>[1]) => ReturnType<typeof signPositionReceipt>;
     verifyPositionReceipt: (input: Parameters<typeof verifyPositionReceipt>[1]) => ReturnType<typeof verifyPositionReceipt>;
+    verifyPositionReceiptChain: (input: Parameters<typeof verifyPositionReceiptChain>[1]) => ReturnType<typeof verifyPositionReceiptChain>;
     prepareDistribution: (input: Parameters<typeof prepareDistribution>[1]) => ReturnType<typeof prepareDistribution>;
     reconcilePosition: (input: Parameters<typeof reconcilePosition>[1]) => ReturnType<typeof reconcilePosition>;
     inspectDistributionClaim: (input: Parameters<typeof inspectDistributionClaim>[1]) => ReturnType<typeof inspectDistributionClaim>;
@@ -149,6 +178,30 @@ export class SimplicityClient {
     verifyClosing: (input: Parameters<typeof verifyFundClosing>[1]) => ReturnType<typeof verifyFundClosing>;
     exportEvidence: (input: Parameters<typeof exportFundEvidence>[1]) => ReturnType<typeof exportFundEvidence>;
     exportFinalityPayload: (input: Parameters<typeof exportFundFinalityPayload>[1]) => ReturnType<typeof exportFundFinalityPayload>;
+  };
+  public readonly receivables: {
+    define: (input: Parameters<typeof defineReceivable>[1]) => ReturnType<typeof defineReceivable>;
+    verify: (input: Parameters<typeof verifyReceivable>[1]) => ReturnType<typeof verifyReceivable>;
+    load: (input: Parameters<typeof loadReceivable>[1]) => ReturnType<typeof loadReceivable>;
+    prepareFunding: (input: Parameters<typeof prepareReceivableFunding>[1]) => ReturnType<typeof prepareReceivableFunding>;
+    verifyFunding: (input: Parameters<typeof verifyReceivableFunding>[1]) => ReturnType<typeof verifyReceivableFunding>;
+    prepareFundingClaim: (input: Parameters<typeof prepareReceivableFundingClaim>[1]) => ReturnType<typeof prepareReceivableFundingClaim>;
+    inspectFundingClaim: (input: Parameters<typeof inspectReceivableFundingClaim>[1]) => ReturnType<typeof inspectReceivableFundingClaim>;
+    executeFundingClaim: (input: Parameters<typeof executeReceivableFundingClaim>[1]) => ReturnType<typeof executeReceivableFundingClaim>;
+    verifyFundingClaim: (input: Parameters<typeof verifyReceivableFundingClaim>[1]) => ReturnType<typeof verifyReceivableFundingClaim>;
+    prepareRepayment: (input: Parameters<typeof prepareReceivableRepayment>[1]) => ReturnType<typeof prepareReceivableRepayment>;
+    verifyRepayment: (input: Parameters<typeof verifyReceivableRepayment>[1]) => ReturnType<typeof verifyReceivableRepayment>;
+    prepareRepaymentClaim: (input: Parameters<typeof prepareReceivableRepaymentClaim>[1]) => ReturnType<typeof prepareReceivableRepaymentClaim>;
+    inspectRepaymentClaim: (input: Parameters<typeof inspectReceivableRepaymentClaim>[1]) => ReturnType<typeof inspectReceivableRepaymentClaim>;
+    executeRepaymentClaim: (input: Parameters<typeof executeReceivableRepaymentClaim>[1]) => ReturnType<typeof executeReceivableRepaymentClaim>;
+    verifyRepaymentClaim: (input: Parameters<typeof verifyReceivableRepaymentClaim>[1]) => ReturnType<typeof verifyReceivableRepaymentClaim>;
+    prepareWriteOff: (input: Parameters<typeof prepareReceivableWriteOff>[1]) => ReturnType<typeof prepareReceivableWriteOff>;
+    verifyWriteOff: (input: Parameters<typeof verifyReceivableWriteOff>[1]) => ReturnType<typeof verifyReceivableWriteOff>;
+    prepareClosing: (input: Parameters<typeof prepareReceivableClosing>[1]) => ReturnType<typeof prepareReceivableClosing>;
+    verifyClosing: (input: Parameters<typeof verifyReceivableClosing>[1]) => ReturnType<typeof verifyReceivableClosing>;
+    verifyStateHistory: (input: Parameters<typeof verifyReceivableStateHistory>[1]) => ReturnType<typeof verifyReceivableStateHistory>;
+    exportEvidence: (input: Parameters<typeof exportReceivableEvidence>[1]) => Promise<ReceivableEvidenceBundle>;
+    exportFinalityPayload: (input: Parameters<typeof exportReceivableFinalityPayload>[1]) => ReturnType<typeof exportReceivableFinalityPayload>;
   };
 
   constructor(public readonly config: SimplicityClientConfig) {
@@ -178,6 +231,7 @@ export class SimplicityClient {
     this.bonds = {
       define: async (input) => define(this, input),
       verify: async (input) => verify(this, input),
+      verifyIssuanceHistory: async (input) => verifyIssuanceHistory(this, input),
       load: async (input) => load(this, input),
       issue: async (input) => issue(this, input),
       prepareRedemption: async (input) => prepareRedemption(this, input),
@@ -207,6 +261,7 @@ export class SimplicityClient {
       verifyCapitalCall: async (input) => verifyCapitalCall(this, input),
       signPositionReceipt: async (input) => signPositionReceipt(this, input),
       verifyPositionReceipt: async (input) => verifyPositionReceipt(this, input),
+      verifyPositionReceiptChain: async (input) => verifyPositionReceiptChain(this, input),
       prepareDistribution: async (input) => prepareDistribution(this, input),
       reconcilePosition: async (input) => reconcilePosition(this, input),
       inspectDistributionClaim: async (input) => inspectDistributionClaim(this, input),
@@ -216,6 +271,30 @@ export class SimplicityClient {
       verifyClosing: async (input) => verifyFundClosing(this, input),
       exportEvidence: async (input) => exportFundEvidence(this, input),
       exportFinalityPayload: async (input) => exportFundFinalityPayload(this, input),
+    };
+    this.receivables = {
+      define: async (input) => defineReceivable(this, input),
+      verify: async (input) => verifyReceivable(this, input),
+      load: async (input) => loadReceivable(this, input),
+      prepareFunding: async (input) => prepareReceivableFunding(this, input),
+      verifyFunding: async (input) => verifyReceivableFunding(this, input),
+      prepareFundingClaim: async (input) => prepareReceivableFundingClaim(this, input),
+      inspectFundingClaim: async (input) => inspectReceivableFundingClaim(this, input),
+      executeFundingClaim: async (input) => executeReceivableFundingClaim(this, input),
+      verifyFundingClaim: async (input) => verifyReceivableFundingClaim(this, input),
+      prepareRepayment: async (input) => prepareReceivableRepayment(this, input),
+      verifyRepayment: async (input) => verifyReceivableRepayment(this, input),
+      prepareRepaymentClaim: async (input) => prepareReceivableRepaymentClaim(this, input),
+      inspectRepaymentClaim: async (input) => inspectReceivableRepaymentClaim(this, input),
+      executeRepaymentClaim: async (input) => executeReceivableRepaymentClaim(this, input),
+      verifyRepaymentClaim: async (input) => verifyReceivableRepaymentClaim(this, input),
+      prepareWriteOff: async (input) => prepareReceivableWriteOff(this, input),
+      verifyWriteOff: async (input) => verifyReceivableWriteOff(this, input),
+      prepareClosing: async (input) => prepareReceivableClosing(this, input),
+      verifyClosing: async (input) => verifyReceivableClosing(this, input),
+      verifyStateHistory: async (input) => verifyReceivableStateHistory(this, input),
+      exportEvidence: async (input) => exportReceivableEvidence(this, input),
+      exportFinalityPayload: async (input) => exportReceivableFinalityPayload(this, input),
     };
   }
 

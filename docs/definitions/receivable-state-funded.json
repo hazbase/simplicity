@@ -1,0 +1,20 @@
+{
+  "stateId": "REC-001-S1",
+  "receivableId": "REC-001",
+  "originatorEntityId": "originator-1",
+  "debtorEntityId": "debtor-1",
+  "holderEntityId": "fund-1",
+  "currencyAssetId": "bitcoin",
+  "controllerXonly": "1111111111111111111111111111111111111111111111111111111111111111",
+  "faceValue": 10000,
+  "outstandingAmount": 10000,
+  "repaidAmount": 0,
+  "status": "FUNDED",
+  "createdAt": "2027-01-02T00:00:00Z",
+  "previousStateHash": "575a96c8f73f9a68d8bc76f5683cf042f89dcff73c7136939daf26be6128d935",
+  "lastTransition": {
+    "type": "FUND",
+    "amount": 10000,
+    "at": "2027-01-02T00:00:00Z"
+  }
+}

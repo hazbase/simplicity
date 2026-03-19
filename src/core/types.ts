@@ -500,12 +500,39 @@ export interface BondClosingDescriptor {
   finalSettlementDescriptorHash: string;
 }
 
+export interface LineageTrustBase<LineageKind extends string> {
+  lineageKind: LineageKind;
+  chainLength: number;
+  latestOrdinal: number;
+  allHashLinksVerified: boolean;
+  identityConsistent: boolean;
+  fullLineageVerified: boolean;
+}
+
+export interface BondIssuanceLineageTrust extends LineageTrustBase<"state-history"> {
+  latestStatus?: BondIssuanceStatus;
+  startsAtGenesis: boolean;
+  previousStateHashLinked: boolean;
+  issuanceIdConsistent: boolean;
+  bondIdConsistent: boolean;
+  currencyConsistent: boolean;
+  controllerConsistent: boolean;
+  issuerEntityConsistent: boolean;
+  issuedPrincipalConsistent: boolean;
+  allPreviousStateHashMatch: boolean;
+  allRedemptionArithmeticValid: boolean;
+  allStatusProgressionValid: boolean;
+  allTransitionIdentitiesMatch: boolean;
+  fullHistoryVerified: boolean;
+}
+
 export interface BondVerificationReport {
   artifactTrust: {
     definition: DefinitionVerificationResult["trust"];
     state: StateVerificationResult["trust"];
   };
   stateTrust: StateVerificationResult["trust"];
+  issuanceLineageTrust?: BondIssuanceLineageTrust;
   settlementTrust?: {
     descriptorHashMatch: boolean;
     outputBindingMode: BondOutputBindingMode;
@@ -562,6 +589,7 @@ export interface BondEvidenceBundle {
     hash: string;
   };
   trust: BondVerificationReport;
+  trustSummary: VerificationTrustSummary;
   renderedSourceHash?: string;
   sourceVerificationMode: "source-reloaded" | "artifact-only";
   compiled: {
@@ -569,6 +597,202 @@ export interface BondEvidenceBundle {
     cmr: string;
     contractAddress: string;
   };
+}
+
+export type ReceivableStatus = "ORIGINATED" | "FUNDED" | "PARTIALLY_REPAID" | "REPAID" | "DEFAULTED";
+export type ReceivableTransitionType = "ORIGINATE" | "FUND" | "REPAY" | "WRITE_OFF";
+export type ReceivableClosingReason = "REPAID" | "DEFAULTED" | "CANCELLED";
+export type ReceivableClaimKind = "FUNDING" | "REPAYMENT";
+export type ReceivableVerificationReportSchemaVersion = "receivable-verification-report/v1";
+export type ReceivableEvidenceBundleSchemaVersion = "receivable-evidence-bundle/v1";
+export type ReceivableFinalityPayloadSchemaVersion = "receivable-finality-payload/v1";
+
+export interface ReceivableDefinition {
+  receivableId: string;
+  originatorEntityId: string;
+  debtorEntityId: string;
+  currencyAssetId: string;
+  faceValue: number;
+  dueDate: string;
+  controllerXonly: string;
+}
+
+export interface ReceivableStateTransition {
+  type: ReceivableTransitionType;
+  amount: number;
+  at: string;
+}
+
+export interface ReceivableState {
+  stateId: string;
+  receivableId: string;
+  originatorEntityId: string;
+  debtorEntityId: string;
+  holderEntityId: string;
+  currencyAssetId: string;
+  controllerXonly: string;
+  faceValue: number;
+  outstandingAmount: number;
+  repaidAmount: number;
+  status: ReceivableStatus;
+  createdAt: string;
+  previousStateHash?: string | null;
+  lastTransition?: ReceivableStateTransition;
+}
+
+export interface ReceivableClosingDescriptor {
+  closingId: string;
+  receivableId: string;
+  latestStateHash: string;
+  latestStatus: ReceivableStatus;
+  holderEntityId: string;
+  closedAt: string;
+  closingReason: ReceivableClosingReason;
+}
+
+export interface ReceivableClaimDescriptorBase<ClaimKind extends ReceivableClaimKind> {
+  claimId: string;
+  claimKind: ClaimKind;
+  receivableId: string;
+  currentStateHash: string;
+  currentStatus: ReceivableStatus;
+  payerEntityId: string;
+  payeeEntityId: string;
+  claimantXonly: string;
+  currencyAssetId: string;
+  amountSat: number;
+  eventTimestamp: string;
+}
+
+export interface ReceivableFundingClaimDescriptor extends ReceivableClaimDescriptorBase<"FUNDING"> {}
+
+export interface ReceivableRepaymentClaimDescriptor extends ReceivableClaimDescriptorBase<"REPAYMENT"> {}
+
+export interface ReceivableTransitionTrust {
+  transitionType: ReceivableTransitionType;
+  previousStateHashMatch: boolean;
+  participantConsistencyValid: boolean;
+  statusProgressionValid: boolean;
+  arithmeticDeltaValid: boolean;
+  createdAtMonotonic: boolean;
+  transitionAmountValid: boolean;
+  fullTransitionVerified: boolean;
+}
+
+export interface ReceivableClosingTrust {
+  terminalStatusEligible: boolean;
+  latestStateHashMatch: boolean;
+  closingReasonMatchesStatus: boolean;
+  historyTipMatches: boolean;
+  lineageProvided: boolean;
+  fullClosingVerified: boolean;
+}
+
+export interface ReceivableClaimTrust {
+  claimKind: ReceivableClaimKind;
+  generated: boolean;
+  stateStatusEligible: boolean;
+  receivableIdMatch: boolean;
+  currentStateHashMatch: boolean;
+  currentStatusMatch: boolean;
+  payerEntityMatch: boolean;
+  payeeEntityMatch: boolean;
+  claimantXonlyMatch: boolean;
+  claimantXonlyCommitted: boolean;
+  currencyAssetMatch: boolean;
+  amountMatch: boolean;
+  eventTimestampMatch: boolean;
+  bindingMode: BondOutputBindingMode;
+  requestedMode?: BondOutputBindingMode;
+  supportedForm: OutputBindingSupportedForm;
+  reasonCode: OutputBindingReasonCode;
+  nextReceiverRuntimeCommitted: boolean;
+  nextOutputHashRuntimeBound: boolean;
+  nextOutputScriptRuntimeBound: boolean;
+  amountRuntimeBound: boolean;
+  autoDerived?: boolean;
+  fallbackReason?: string;
+  bindingInputs?: OutputBindingInputs;
+  fullClaimVerified: boolean;
+}
+
+export interface ReceivableVerificationReport {
+  schemaVersion: ReceivableVerificationReportSchemaVersion;
+  receivableTrust: {
+    receivableIdMatch: boolean;
+    originatorMatch: boolean;
+    debtorMatch: boolean;
+    currencyMatch: boolean;
+    controllerMatch: boolean;
+    faceValueMatch: boolean;
+    arithmeticValid: boolean;
+    statusValid: boolean;
+  };
+  transitionTrust?: ReceivableTransitionTrust;
+  closingTrust?: ReceivableClosingTrust;
+  fundingClaimTrust?: ReceivableClaimTrust;
+  repaymentClaimTrust?: ReceivableClaimTrust;
+  stateLineageTrust?: ReceivableStateLineageTrust;
+}
+
+export interface ReceivableStateLineageTrust extends LineageTrustBase<"state-history"> {
+  latestStatus: ReceivableStatus;
+  startsAtGenesis: boolean;
+  receivableIdConsistent: boolean;
+  originatorConsistent: boolean;
+  debtorConsistent: boolean;
+  currencyConsistent: boolean;
+  controllerConsistent: boolean;
+  faceValueConsistent: boolean;
+  allPreviousStateHashMatch: boolean;
+  allArithmeticValid: boolean;
+  allStatusProgressionValid: boolean;
+  fullHistoryVerified: boolean;
+}
+
+export interface ReceivableEvidenceBundle {
+  schemaVersion: ReceivableEvidenceBundleSchemaVersion;
+  definition: {
+    canonicalJson: string;
+    hash: string;
+  };
+  state: {
+    canonicalJson: string;
+    hash: string;
+  };
+  stateHistory?: Array<{
+    canonicalJson: string;
+    hash: string;
+  }>;
+  fundingClaim?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  repaymentClaim?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  closing?: {
+    canonicalJson: string;
+    hash: string;
+  };
+  trust: ReceivableVerificationReport;
+  trustSummary: VerificationTrustSummary;
+}
+
+export interface ReceivableFinalityPayload {
+  schemaVersion: ReceivableFinalityPayloadSchemaVersion;
+  receivableId: string;
+  holderEntityId: string;
+  definitionHash: string;
+  latestStateHash: string;
+  stateHistoryHashes?: string[] | null;
+  fundingClaimHash?: string | null;
+  repaymentClaimHash?: string | null;
+  closingHash?: string | null;
+  closingReason?: ReceivableClosingReason | null;
+  trust: ReceivableVerificationReport;
+  trustSummary: VerificationTrustSummary;
 }
 
 export type CapitalCallStatus = "OPEN" | "CLAIMED" | "REFUND_ONLY" | "REFUNDED";
@@ -728,12 +952,58 @@ export interface FundVerificationReport {
     sequence?: number;
     sequenceMonotonic?: boolean;
     attestingSignerMatch?: boolean;
+    previousEnvelopeProvided?: boolean;
+    previousReceiptHashMatch?: boolean;
+    previousSequenceMatch?: boolean;
+    continuityVerified?: boolean;
   };
+  receiptChainTrust?: FundReceiptChainTrust;
   closingTrust?: {
     positionReceiptHashMatch: boolean;
     finalDistributionHashesPresent: boolean;
     positionStatusEligible: boolean;
   };
+}
+
+export interface FundReceiptChainTrust extends LineageTrustBase<"receipt-chain"> {
+  latestSequence?: number;
+  startsAtGenesis: boolean;
+  latestSequenceCovered: boolean;
+  sequenceContiguous: boolean;
+  fundConsistent: boolean;
+  positionConsistent: boolean;
+  lpConsistent: boolean;
+  callConsistent: boolean;
+  currencyConsistent: boolean;
+  lpXonlyConsistent: boolean;
+  attestingSignerConsistent: boolean;
+  allPositionReceiptHashMatch: boolean;
+  allSequenceMatch: boolean;
+  allSequenceMonotonic: boolean;
+  allAttestingSignerMatch: boolean;
+  allAttestationVerified: boolean;
+  allContinuityVerified: boolean;
+  fullChainVerified: boolean;
+}
+
+export type DomainLineageTrust =
+  | BondIssuanceLineageTrust
+  | FundReceiptChainTrust
+  | ReceivableStateLineageTrust;
+
+export interface DomainLineageTrustSummary {
+  lineageKind: DomainLineageTrust["lineageKind"];
+  latestOrdinal: number;
+  allHashLinksVerified: boolean;
+  identityConsistent: boolean;
+  fullLineageVerified: boolean;
+}
+
+export interface VerificationTrustSummary {
+  definition?: DefinitionVerificationResult["trust"];
+  state?: StateVerificationResult["trust"];
+  bindingMode: BondOutputBindingMode;
+  lineage?: DomainLineageTrustSummary;
 }
 
 export interface FundEvidenceBundle {
@@ -768,6 +1038,7 @@ export interface FundEvidenceBundle {
     hash: string;
   };
   trust: FundVerificationReport;
+  trustSummary: VerificationTrustSummary;
   renderedSourceHash?: string;
   sourceVerificationMode: "source-reloaded" | "artifact-only";
   compiled?: {
@@ -792,11 +1063,7 @@ export interface FundFinalityPayload {
   closingHash?: string | null;
   bindingMode: BondOutputBindingMode;
   trust: FundVerificationReport;
-  trustSummary: {
-    definition?: DefinitionVerificationResult["trust"];
-    state?: StateVerificationResult["trust"];
-    bindingMode: BondOutputBindingMode;
-  };
+  trustSummary: VerificationTrustSummary;
 }
 
 export interface PolicyReceiver {
@@ -936,6 +1203,7 @@ export interface PolicyEvidenceBundle {
     hash: string;
   };
   report: PolicyVerificationReport;
+  trustSummary: VerificationTrustSummary;
   renderedSourceHash?: string;
   sourceVerificationMode: "source-reloaded" | "artifact-only";
   compiled: {

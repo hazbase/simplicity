@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { buildConsumerNpmEnv, installPackedSdkForConsumer } from "./consumerInstall.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,20 +20,7 @@ async function hasBinary(name) {
 async function main() {
   const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-bond-consumer-"));
-  const npmEnv = {
-    ...process.env,
-    NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE ?? path.join(workDir, ".npm-cache"),
-  };
-
-  const { stdout: packedName } = await execFileAsync("npm", ["pack", "--pack-destination", workDir], {
-    cwd: repoRoot,
-    env: npmEnv,
-  });
-  const tarballName = packedName.trim().split("\n").filter(Boolean).at(-1);
-  if (!tarballName) {
-    throw new Error("npm pack did not return a tarball name");
-  }
-  const tarballPath = path.join(workDir, tarballName);
+  const npmEnv = buildConsumerNpmEnv(workDir);
 
   await writeFile(
     path.join(workDir, "package.json"),
@@ -44,10 +32,7 @@ async function main() {
     "utf8",
   );
 
-  await execFileAsync("npm", ["install", tarballPath], {
-    cwd: workDir,
-    env: npmEnv,
-  });
+  await installPackedSdkForConsumer({ repoRoot, workDir, npmEnv });
 
   const smokePath = path.join(workDir, "consumer-smoke.mjs");
   await writeFile(
@@ -132,6 +117,7 @@ const verified = await sdk.bonds.verify({
   definitionPath,
   issuancePath,
 });
+const currentIssuance = JSON.parse(verified.issuance.state.canonicalJson);
 
 const redemption = await sdk.bonds.prepareRedemption({
   definitionPath,
@@ -179,10 +165,22 @@ const closing = await sdk.bonds.prepareClosing({
   closingReason: "REDEEMED",
 });
 
+const issuanceHistory = await sdk.bonds.verifyIssuanceHistory({
+  definitionPath,
+  issuanceHistoryValues: [
+    currentIssuance,
+    redemption.preview.next,
+  ],
+});
+
 const finality = await sdk.bonds.exportFinalityPayload({
   artifactPath,
   definitionPath,
-  issuancePath,
+  issuanceValue: redemption.preview.next,
+  issuanceHistoryValues: [
+    currentIssuance,
+    redemption.preview.next,
+  ],
   settlementDescriptorValue: settlement.descriptor,
   closingDescriptorValue: closing.closing,
 });
@@ -200,9 +198,13 @@ console.log(JSON.stringify({
   rawSettlementSupportedForm: rawSettlement.supportedForm,
   rawSettlementScriptComponent: rawSettlement.bindingInputs.rawOutputComponents?.scriptPubKey ?? null,
   rawSettlementNextOutputHash: rawSettlement.expectedOutputDescriptor?.nextOutputHash ?? null,
+  issuanceHistoryVerified: issuanceHistory.verified,
+  issuanceHistoryLength: issuanceHistory.report.issuanceLineageTrust?.chainLength ?? 0,
+  issuanceHistoryLatestStatus: issuanceHistory.report.issuanceLineageTrust?.latestStatus ?? null,
   closingHash: closing.closingHash,
   finalityBindingMode: finality.bindingMode,
   finalityDefinitionHash: finality.payload.definitionHash,
+  finalityHistoryVerified: finality.trust.issuanceLineageTrust?.fullHistoryVerified ?? null,
 }, null, 2));
 `,
     "utf8",

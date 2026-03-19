@@ -2,16 +2,17 @@
 [![npm version](https://badge.fury.io/js/@hazbase%2Fsimplicity.svg)](https://badge.fury.io/js/@hazbase%2Fsimplicity)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-`@hazbase/simplicity` is a Node.js / TypeScript SDK for working with Simplicity contracts on Liquid with an EVM-like developer workflow. It lets you compile SimplicityHL (`.simf`) contracts, derive the contract address, fund that address, inspect the spend you are about to make, execute the contract, and optionally run fee-sponsored flows through a sponsor wallet or relayer. It also ships with built-in presets so you can start from known-good contract templates before moving to custom `.simf` code.
+`@hazbase/simplicity` is a Node.js / TypeScript SDK for working with Simplicity contracts on Liquid with an EVM-like developer workflow. It gives developers a practical settlement toolkit for compiling SimplicityHL (`.simf`) contracts, funding and executing constrained outputs, and exporting verification, evidence, finality, and lineage reports for permissioned policy, bond, fund, and receivable flows. It also ships with built-in presets so you can start from known-good contract templates before moving to custom `.simf` code.
 
 This SDK is designed to help Node developers get productive quickly, but it is still opinionated and early-stage:
 - SimplicityHL is still upstream work-in-progress and is not production-ready.
 - This SDK currently optimizes for explicit / unblinded success paths first.
 - Gasless support exists, but it comes in multiple modes with different tradeoffs.
+- Bond, fund, and receivable evidence/finality exports now also carry a shared lightweight `trustSummary`, including lineage fields when canonical history is provided.
 
 Consumer validation note:
 - The published npm package has been validated from a fresh external Node.js project using `npm install @hazbase/simplicity`.
-- Verified flows include preset-based contract execution, custom `.simf` execution, relayer-backed gasless execution, and LP-fund business-flow validation on `liquidtestnet`.
+- Verified flows include preset-based contract execution, custom `.simf` execution, relayer-backed gasless execution, bond/fund lineage-aware business flows, receivable repayment-first claim verification, and LP-fund validation on `liquidtestnet`.
 
 ## Recursive Policy SDK
 
@@ -38,6 +39,8 @@ Main entrypoints:
 - `sdk.policies.verifyState(...)`
 - `sdk.policies.verifyTransfer(...)`
 - `sdk.policies.exportEvidence(...)`
+
+Policy evidence bundles now also export a lightweight `trustSummary`, so policy, bond, and fund flows all expose the same “full report + compact trust summary” shape.
 
 Reference examples:
 - [describe-policy-template.ts](./examples/describe-policy-template.ts)
@@ -205,9 +208,10 @@ This is intentionally explicit about current scope:
 - not yet treated as a default path:
   - wallet/RPC-driven confidential output reconstruction
 
-For the current runtime validation scope and timelock test-environment caveats, see [docs/design/recursive-policy-runtime-validation.md](./docs/design/recursive-policy-runtime-validation.md).
-Reproducible policy confidence commands:
+Public policy confidence commands:
 - `npm run e2e:policy-local`
+- `npm run e2e:policy-restricted-otc-local`
+- `npm run e2e:policy-restricted-otc-testnet`
 - `POLICY_OUTPUT_BINDING_MODE=script-bound npm run e2e:policy-testnet`
 - `POLICY_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:policy-testnet`
 - `npm run e2e:policy-consumer`
@@ -221,7 +225,8 @@ Security-first vNext model:
 - manager claim exists only on the `open` artifact
 - LP refund exists only on the `refund-only` artifact
 - `LPPositionReceipt` is an off-chain canonical document wrapped in a manager-attested envelope
-- closing accepts only the latest attested receipt envelope
+- closing accepts only a definition-bound attested receipt envelope and, for `sequence > 0`, its immediate predecessor
+- full receipt-chain verification can additionally validate the entire attested lineage from `sequence=0` to the latest envelope
 
 This layer is intentionally narrower than a full fund-admin system. It focuses on:
 - capital call funding / manager claim / rollover / LP refund
@@ -229,11 +234,91 @@ This layer is intentionally narrower than a full fund-admin system. It focuses o
 - later one-shot distribution claim contracts
 - finality / close-out evidence
 
-It does **not** introduce `sdk.rwas`. The public architecture remains:
+It does **not** introduce `sdk.rwas`. The public architecture remains centered on the same core layers plus one lightweight receivable domain:
 - `sdk.outputBinding`: shared binding support / fallback contract
 - `sdk.policies`: generic recursive covenant engine
 - `sdk.bonds`: credit / bond business layer
 - `sdk.funds`: LP fund settlement business layer
+- `sdk.receivables`: repayment-first receivable business layer for lineage-aware pilots
+
+## Receivable Business Layer
+
+The SDK also now exposes `sdk.receivables` as a repayment-first business layer for permissioned receivable or invoice-style RWA flows.
+
+Current scope:
+- canonical receivable definition + state validation
+- funding / repayment / write-off transition builders and verifiers
+- runtime funding-claim descriptors, contracts, and payout inspection / execution helpers
+- runtime repayment-claim descriptors, contracts, and payout inspection / execution helpers
+- terminal closing descriptors for repaid or defaulted receivables
+- full hash-linked state-history verification
+- shared evidence / finality export with lightweight `trustSummary`
+- a concrete reference pattern for future RWA domains that want the same `latest state + lineage + finality` model
+
+Main entrypoints:
+- `sdk.receivables.define(...)`
+- `sdk.receivables.verify(...)`
+- `sdk.receivables.load(...)`
+- `sdk.receivables.prepareFunding(...)`
+- `sdk.receivables.verifyFunding(...)`
+- `sdk.receivables.prepareFundingClaim(...)`
+- `sdk.receivables.inspectFundingClaim(...)`
+- `sdk.receivables.executeFundingClaim(...)`
+- `sdk.receivables.verifyFundingClaim(...)`
+- `sdk.receivables.prepareRepayment(...)`
+- `sdk.receivables.verifyRepayment(...)`
+- `sdk.receivables.prepareRepaymentClaim(...)`
+- `sdk.receivables.inspectRepaymentClaim(...)`
+- `sdk.receivables.executeRepaymentClaim(...)`
+- `sdk.receivables.verifyRepaymentClaim(...)`
+- `sdk.receivables.prepareWriteOff(...)`
+- `sdk.receivables.verifyWriteOff(...)`
+- `sdk.receivables.prepareClosing(...)`
+- `sdk.receivables.verifyClosing(...)`
+- `sdk.receivables.verifyStateHistory(...)`
+- `sdk.receivables.exportEvidence(...)`
+- `sdk.receivables.exportFinalityPayload(...)`
+
+Reference example:
+- [show-receivable-lineage.ts](./examples/show-receivable-lineage.ts)
+- [show-receivable-business-flow.ts](./examples/show-receivable-business-flow.ts)
+
+Scope note:
+- this is intentionally a lightweight domain layer today
+- runtime scope is intentionally **repayment-first**
+- `write-off` remains SDK-only in the current wave
+- dedicated local and testnet runtime runners now exist, but fresh testnet txids still depend on an operator-supplied Elements RPC environment
+- its main purpose is still to show how the shared lineage/reporting helpers extend cleanly into the next permissioned RWA case without pretending the whole servicing stack is on-chain
+
+Matching CLI flow:
+- `receivable define`
+- `receivable verify`
+- `receivable load`
+- `receivable prepare-funding`
+- `receivable verify-funding`
+- `receivable prepare-funding-claim`
+- `receivable inspect-funding-claim`
+- `receivable execute-funding-claim`
+- `receivable verify-funding-claim`
+- `receivable prepare-repayment`
+- `receivable verify-repayment`
+- `receivable prepare-repayment-claim`
+- `receivable inspect-repayment-claim`
+- `receivable execute-repayment-claim`
+- `receivable verify-repayment-claim`
+- `receivable prepare-write-off`
+- `receivable verify-write-off`
+- `receivable prepare-closing`
+- `receivable verify-closing`
+- `receivable verify-state-history`
+- `receivable export-evidence`
+- `receivable export-finality-payload`
+
+Public receivable confidence commands:
+- `npm run e2e:receivable-consumer`
+- `npm run e2e:receivable-local`
+- `RECEIVABLE_OUTPUT_BINDING_MODE=script-bound npm run e2e:receivable-testnet`
+- `RECEIVABLE_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:receivable-testnet`
 
 Main entrypoints:
 - `sdk.funds.define(...)`
@@ -249,6 +334,7 @@ Main entrypoints:
 - `sdk.funds.verifyCapitalCall(...)`
 - `sdk.funds.signPositionReceipt(...)`
 - `sdk.funds.verifyPositionReceipt(...)`
+- `sdk.funds.verifyPositionReceiptChain(...)`
 - `sdk.funds.prepareDistribution(...)`
 - `sdk.funds.inspectDistributionClaim(...)`
 - `sdk.funds.executeDistributionClaim(...)`
@@ -334,9 +420,17 @@ const afterSecond = await sdk.funds.reconcilePosition({
   signedAt: "2028-03-18T00:00:00Z",
 });
 
+const receiptChain = [
+  signedInitialReceipt.positionReceiptEnvelope,
+  afterFirst.reconciledReceiptEnvelope,
+  afterSecond.reconciledReceiptEnvelope,
+];
+
 const closing = await sdk.funds.prepareClosing({
   definitionPath: "./docs/definitions/fund-definition.json",
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+  previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  positionReceiptChainValues: receiptChain,
   closingId: "CLOSE-001",
   finalDistributionHashes: [
     firstDistribution.distributionSummary.hash,
@@ -346,9 +440,34 @@ const closing = await sdk.funds.prepareClosing({
 });
 ```
 
+`verifyPositionReceipt(...)` gives the minimum latest-envelope check. When you pass the full attested chain, `sdk.funds.verifyPositionReceiptChain(...)`, `prepareClosing(...)`, `verifyClosing(...)`, `exportEvidence(...)`, and `exportFinalityPayload(...)` can all surface shared receipt-chain trust fields such as `fullLineageVerified` and `fullChainVerified`.
+
+Example CLI summary:
+
+```bash
+npx simplicity-cli fund verify-position-receipt-chain \
+  --definition-json ./docs/definitions/fund-definition.json \
+  --position-receipt-chain-json ./tmp/receipt-0.json \
+  --position-receipt-chain-json ./tmp/receipt-1.json \
+  --position-receipt-chain-json ./tmp/receipt-2.json
+```
+
+```text
+verified=true
+positionId=POSITION-001
+chainLength=3
+latestSequence=2
+latestOrdinal=2
+startsAtGenesis=true
+allHashLinksVerified=true
+identityConsistent=true
+fullLineageVerified=true
+fullChainVerified=true
+```
+
 The split examples are:
 - `show-fund-claim-close-flow.ts`: receipt envelope -> two distributions -> manager-attested reconciliation -> closing/finality
-- `show-fund-refund-flow.ts`: open capital call -> rollover -> refund-only evidence/finality
+- `show-fund-refund-flow.ts`: open capital call -> rollover -> refund-only payout binding -> evidence/finality
 
 The matching CLI flow is:
 - `fund define`
@@ -363,6 +482,7 @@ The matching CLI flow is:
 - `fund verify-capital-call`
 - `fund sign-position-receipt`
 - `fund verify-position-receipt`
+- `fund verify-position-receipt-chain`
 - `fund prepare-distribution`
 - `fund inspect-distribution-claim`
 - `fund execute-distribution-claim`
@@ -385,7 +505,7 @@ Reproducible fund confidence commands:
 Security notes for `sdk.funds`:
 - on-chain enforced:
   - `open` capital call allows manager claim only
-  - `refund-only` capital call allows LP refund only
+  - `refund-only` capital call allows LP refund only, with optional payout output binding
   - cutoff height is committed into the `open` artifact
   - output binding uses the shared `script-bound` / `descriptor-bound` / `raw-output-v1` engine
 - off-chain attested:
@@ -400,26 +520,71 @@ Latest fund testnet reruns:
 
 | Flow | Funding txid | Main execution txid(s) | Closing / receipt | Rerun command |
 | --- | --- | --- | --- | --- |
-| `script-bound` claim-close | `a488a5c6e7c56ecca8d5860bf495590d38cfe8087f678f5664241b8eb90396de` | claim `43974a18c048f67f3399b614ea476ffb87c4622d8083636d1aeacbb51747d94d`; distributions `90fb3abdb000d9f66a18b1e2061fa06b56a51fe64513d358c47cc992c374e209`, `0644820b7fee4c11a9a66dbd1a14733ed2420435449717f4895d589f55b05b30` | receipt `f1f294c0f33405f31abbdd8a3a258e57c614bd381b61a7fba2ae420a35e77c70`; closing `19dfd60dfe04cbe1f145a2ab112ef5cf30a087e084837fa7bcce3ed80df72a2a` | `FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet` |
-| `descriptor-bound` claim-close | `201b66c3843b9999703b08d242c547ca1d1f35619ca99e916d93e4ed70338bc6` | claim `c27621a27cb3b99b4d960cfa4be98de925beed7c3a7bd799fd3f88a3cb680762`; distributions `d4066986e90a9faa000032198307955583e318c0afd09d98691db7b07dc1b022`, `bbfe830790ef5a86a5595d0dccdd2a344efc7d3eebe7a597be1f2a5c2330dabb` | receipt `05b3e4b2c33518b22bd28939cef36972e7fe0c7273b24a6867fba40a0e374fce`; closing `b1ff75e989628130ec56e753f7bc48cc0648b82272c90dfee03f7582879835dd` | `FUND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:fund-testnet` |
-| `script-bound` refund | `3adf9025c4656d099752f2e5f43738495fbad712177b75f9330c05273eff12ff` | rollover `8b1224e808ad9824d7bf85924a07d62c75c038987a4163b2e450c455b962ed9d`; refund `6be225448ff062e1f2e8992cf3319601098b7b19edb0ea27823487e9a881f415` | refund-only settlement | `FUND_FLOW_MODE=refund FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet` |
+| `script-bound` claim-close | `a7676264c0afab65d2357fd04f743cb3544bde24bb6839ffb21459fe08fb311b` | claim `d6cea7140e96d9db7cc803cdb382233e789ac1c79df5d616deb2e59502290bc7`; distribution `fa430a540723d5ea8799423ac03b3f66a69fd689e305fd15311f39d17ff0d0ef` | receipt `3288b9fe2ddea6a2cd801fcea63540e165fb2ee48e15c6a3e59fa236b8a3f807`; closing `1960560c3bec9865b94637191253b55622ef1e4f2ef97bd57e1d17196c8339fe`; `fullChainVerified=true` | `FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet` |
+| `descriptor-bound` claim-close | `bf7b2fffbe83367a00b3dceaa0a603b74405ea04ea9eca040562f04817a5515d` | claim `fa393943bbe15432ac07ade5852f903bcc7bd489c5db6f76204110d1f4591b76`; distribution `47ba261ae2005661d4febf4b59b2fb812005c8ece65479a75b3d3a0e7fc68cb8` | receipt `3916dd1ad73bfbffd88fa66e61d82b369ba51ebac0c9d36141f04b727a517e42`; closing `9af65eb24d4226d899e6d26b01cb7e99d3921e49ce3cd2d955fa0c4bb5edb760`; `fullChainVerified=true` | `FUND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:fund-testnet` |
+| `script-bound` refund | `4bc21f88e7fb03b3ee916de57647621a7d445f172a482481a7dceeddac6f1b56` | rollover `7f53e98ca0f935bd6a13781392acc2ff4257b0135e96fb19f81afc68947cd6a6`; refund `e11ebad54259c59e61e41b1cfd6f501490645eaab997661ff3854ca4cbc6e4ba` | refund-only settlement | `FUND_FLOW_MODE=refund FUND_OUTPUT_BINDING_MODE=script-bound npm run e2e:fund-testnet` |
 
-Current runtime truth for claim-close / refund commands, latest txids, and rerun guidance lives in:
-- [docs/design/fund-runtime-validation.md](./docs/design/fund-runtime-validation.md)
+Fund receipt-chain verification now uses the same shared lineage vocabulary as bond issuance history:
+- `receiptChainTrust.lineageKind = receipt-chain`
+- `receiptChainTrust.latestOrdinal`
+- `receiptChainTrust.allHashLinksVerified`
+- `receiptChainTrust.identityConsistent`
+- `receiptChainTrust.fullLineageVerified = true`
+- `receiptChainTrust.fullChainVerified = true`
 
 Latest Bond testnet reruns:
 
 | Mode | Funding txid | Execution txid | Rerun command |
 | --- | --- | --- | --- |
-| `script-bound` | `1c982864ef6c83da4eb7f8018edc4cbdff439db7c6366984b3f85ad4937e2c4f` | `d659c4bdce6b32650ff58ac37ccaa55209a9f04d5dc4595f956fad034089f580` | `BOND_OUTPUT_BINDING_MODE=script-bound npm run e2e:bond-testnet` |
-| `descriptor-bound` | `72d0015b51a74c3cc81f7abb74a4f6f894c7f7bbd1e83647939459d7b40e504f` | `85e0830a7b2ba33ca37d5f11bd981938418fc472e98657095680ada71387974c` | `BOND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:bond-testnet` |
+| `script-bound` | `90f521bf3c457e0f919bc6876a9f4185fb4e095cda03130cdda640639fc9bcb2` | `2fd8b5ca82a8cb451d5305d3ec104f0f1864754db27c429d040ab054883eeac2` | `BOND_OUTPUT_BINDING_MODE=script-bound npm run e2e:bond-testnet` |
+| `descriptor-bound` | `7e5bb2fedd562e977388b007d0901cf0334e802402bc6f2a85080571a84b348d` | `b3c2819edb4e55cbc311fb85e033b9528ae7fcb8de196301059ef98120eb8170` | `BOND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:bond-testnet` |
 
-For current fund runtime scope and caveats, see:
-- [docs/design/fund-runtime-validation.md](./docs/design/fund-runtime-validation.md)
+Latest Bond close-out reruns (`BOND_REDEEM_AMOUNT=1000000`):
+
+| Mode | Funding txid | Execution txid | Closing hash | Rerun command |
+| --- | --- | --- | --- | --- |
+| `script-bound` | `5486ae5e47540f9d882cb5e080f40679051f913a69cf4414cb187effcca3820c` | `6db4b307ec5fb9e770cb6b506e281bde6415ed890f86bc08f67cce74b8211298` | `68ede25e5ea442eb182321c149002b4930f9ffca384e5e7e113f82346edcb5ae` | `BOND_OUTPUT_BINDING_MODE=script-bound BOND_REDEEM_AMOUNT=1000000 npm run e2e:bond-testnet` |
+| `descriptor-bound` | `882e9c71b8c20c8a13a39b848d765a30965a8c2d43e9a5ea2883ef85b35a9869` | `d69a0c05eec79af34878bb07a7dcc42f445d6d8522c9452ba5673ea97d1a818b` | `b1a0605ad3a0063a837d00b39c6d1f9d7a62b588c5548f52ab38a6f67c1f5aab` | `BOND_OUTPUT_BINDING_MODE=descriptor-bound BOND_REDEEM_AMOUNT=1000000 npm run e2e:bond-testnet` |
+
+Fresh bond reruns now persist a canonical issuance-history sidecar and surface the shared lineage vocabulary:
+- `issuanceLineageTrust.lineageKind = state-history`
+- `issuanceLineageTrust.latestOrdinal`
+- `issuanceLineageTrust.allHashLinksVerified`
+- `issuanceLineageTrust.identityConsistent`
+- `issuanceLineageTrust.fullLineageVerified = true`
+- `issuanceLineageTrust.fullHistoryVerified = true`
+
+Bond lineage verification:
+- `sdk.bonds.verifyIssuanceHistory(...)` can verify a canonical issuance-state history from the original `ISSUED` state through later redemption or closing states.
+- CLI: `bond verify-issuance-history`
+- evidence / finality export can also carry the shared lineage trust summary, including `fullLineageVerified`, when you pass the canonical issuance history.
+
+Example CLI summary:
+
+```bash
+npx simplicity-cli bond verify-issuance-history \
+  --definition-json ./docs/definitions/bond-definition.json \
+  --issuance-history-json ./tmp/issuance-issued.json \
+  --issuance-history-json ./tmp/issuance-redeemed.json \
+  --issuance-history-json ./tmp/issuance-closed.json
+```
+
+```text
+verified=true
+issuanceId=BOND-2026-001-ISSUE-1
+chainLength=3
+latestStatus=CLOSED
+latestOrdinal=2
+startsAtGenesis=true
+allHashLinksVerified=true
+identityConsistent=true
+fullLineageVerified=true
+fullHistoryVerified=true
+```
 
 ## Validated Scenarios
 
-The published package has been exercised from a blank external consumer project. For the full reproducible fixture, see [docs/consumer-validation/README.md](./docs/consumer-validation/README.md).
+The published package has been exercised from a blank external consumer project through the public consumer smoke commands.
 
 | Scenario | Status | Notes |
 | --- | --- | --- |
@@ -568,16 +733,18 @@ The recommended Bond issuance shape still captures:
 
 ## Public Architecture
 
-The SDK is now organized around four public layers:
+The SDK is now organized around four core public layers plus one lightweight domain layer:
 - `sdk.outputBinding`: cross-domain output-binding support matrix and fallback behavior
 - `sdk.policies`: generic recursive covenant / transfer engine
 - `sdk.bonds`: Bond business layer built on Policy Core primitives and shared output binding
 - `sdk.funds`: LP fund settlement business layer for capital calls, distributions, closing, and finality
+- `sdk.receivables`: receivable funding / repayment / write-off / closing layer with lineage and finality support
 
 This means:
 - use `sdk.policies` when you want a generic constrained-transfer engine,
 - use `sdk.bonds` when you want bond definition / issuance / redemption / settlement / closing / evidence semantics,
 - use `sdk.funds` when you want LP capital call / distribution / closing semantics,
+- use `sdk.receivables` when you want a lightweight receivable business layer with state-history / evidence / finality support,
 - use `sdk.outputBinding.describeSupport()` when you want the canonical explanation of supported forms, manual hash paths, and fallback behavior,
 - use `sdk.outputBinding.evaluateSupport(...)` when you want the deterministic answer for one concrete output-form scenario.
 
@@ -671,8 +838,6 @@ Latest fresh Bond testnet reruns:
 | --- | --- | --- | --- |
 | `script-bound` | `1c982864ef6c83da4eb7f8018edc4cbdff439db7c6366984b3f85ad4937e2c4f` | `d659c4bdce6b32650ff58ac37ccaa55209a9f04d5dc4595f956fad034089f580` | `BOND_OUTPUT_BINDING_MODE=script-bound npm run e2e:bond-testnet` |
 | `descriptor-bound` | `72d0015b51a74c3cc81f7abb74a4f6f894c7f7bbd1e83647939459d7b40e504f` | `85e0830a7b2ba33ca37d5f11bd981938418fc472e98657095680ada71387974c` | `BOND_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:bond-testnet` |
-
-For the current truth source and caveats, see [docs/design/bond-runtime-validation.md](./docs/design/bond-runtime-validation.md).
 
 ### Minimal Bond Flow
 
@@ -822,7 +987,6 @@ Important limitation:
 
 For a Bond-oriented walkthrough that matches the current public surface, see [docs/definitions/README.md](./docs/definitions/README.md).
 For a packaged external-consumer smoke of the public business flow, run `npm run e2e:bond-consumer`.
-For the resumable Bond runtime/testnet validation flow, see [docs/design/bond-runtime-validation.md](./docs/design/bond-runtime-validation.md).
 
 ## Install
 
@@ -1505,6 +1669,7 @@ Policy Core examples:
 - [describe-policy-template.ts](./examples/describe-policy-template.ts): inspect a public policy manifest and validate params.
 - [show-required-policy-transfer.ts](./examples/show-required-policy-transfer.ts): preview a required 1tx recursive transfer.
 - [show-optional-policy-transfer.ts](./examples/show-optional-policy-transfer.ts): preview an optional plain-or-recursive transfer.
+- [show-policy-restricted-otc-transfer.ts](./examples/show-policy-restricted-otc-transfer.ts): preview a restricted OTC transfer that stays constrained to the approved next custodian.
 - [execute-required-policy-transfer.ts](./examples/execute-required-policy-transfer.ts): execute a funded required policy UTXO.
 - [execute-optional-policy-transfer.ts](./examples/execute-optional-policy-transfer.ts): execute an optional plain or recursive branch.
 - [custom-recursive-delay-required.manifest.json](./examples/custom-recursive-delay-required.manifest.json): example external manifest for custom template loading.
@@ -1530,6 +1695,9 @@ In addition to the in-repo examples, the package has also been validated from a 
 - custom `.simf` compile -> fund -> inspect -> execute
 - relayer-backed gasless execution
 - policy quickstart smoke via `npm run e2e:policy-consumer`
+- policy restricted OTC local scenario via `npm run e2e:policy-restricted-otc-local`
+- policy restricted OTC testnet scenario via `npm run e2e:policy-restricted-otc-testnet`
+- receivable business-flow smoke via `npm run e2e:receivable-consumer`
 
 ## Covenant Roadmap
 

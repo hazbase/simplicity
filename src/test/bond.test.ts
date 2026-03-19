@@ -7,7 +7,16 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ValidationError } from "../core/errors";
 import { createSimplicityClient } from "../client/SimplicityClient";
-import { buildBondPayload, buildBondRedemption, buildBondTransitionPayload } from "../domain/bond";
+import {
+  buildBondPayload,
+  buildBondRedemption,
+  buildBondTransitionPayload,
+  buildSettlement,
+  exportEvidence,
+  exportFinalityPayload,
+  prepareClosing,
+  verifyIssuanceHistory,
+} from "../domain/bond";
 import {
   buildBondRolloverPlan,
   buildBondMachineRolloverPlan,
@@ -18,6 +27,7 @@ import {
 } from "../domain/bond";
 import {
   buildRedeemedBondIssuanceState,
+  verifyBondIssuanceHistory,
   summarizeBondIssuanceState,
   validateBondCrossChecks,
   validateBondDefinition,
@@ -357,6 +367,140 @@ test("buildBondRedemption returns next state and hashes", async () => {
   assert.notEqual(result.previousHash, result.nextHash);
 });
 
+test("verifyBondIssuanceHistory validates contiguous issuance lineage", () => {
+  const issued = validateBondIssuanceState({
+    issuanceId: "ISSUE-1",
+    bondId: "BOND-1",
+    issuerEntityId: "hazbase-treasury",
+    issuedPrincipal: 1000,
+    outstandingPrincipal: 1000,
+    redeemedPrincipal: 0,
+    currencyAssetId: "bitcoin",
+    controllerXonly: "79be",
+    issuedAt: "2026-03-10T00:00:00Z",
+    status: "ISSUED",
+  });
+  const partial = buildRedeemedBondIssuanceState({
+    previous: issued,
+    amount: 250,
+    redeemedAt: "2027-03-10T00:00:00Z",
+  });
+  const redeemed = buildRedeemedBondIssuanceState({
+    previous: partial,
+    amount: 750,
+    redeemedAt: "2028-03-10T00:00:00Z",
+  });
+  const checks = verifyBondIssuanceHistory({
+    history: [issued, partial, redeemed],
+  });
+  assert.equal(checks.chainLength, 3);
+  assert.equal(checks.startsAtGenesis, true);
+  assert.equal(checks.previousStateHashLinked, true);
+  assert.equal(checks.allRedemptionArithmeticValid, true);
+  assert.equal(checks.fullHistoryVerified, true);
+});
+
+test("verifyBondIssuanceHistory accepts redeemed-to-closed lineage", async (t) => {
+  try {
+    await execFileAsync("simc", ["--version"]);
+    await execFileAsync("hal-simplicity", ["--version"]);
+  } catch {
+    t.skip("simc/hal-simplicity not available");
+    return;
+  }
+
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const definition = validateBondDefinition({
+    bondId: "BOND-1",
+    issuer: "Hazbase Treasury",
+    faceValue: 1000,
+    couponBps: 500,
+    issueDate: "2026-03-10",
+    maturityDate: 2344430,
+    currencyAssetId: "bitcoin",
+    controllerXonly: "79be",
+  });
+  const issued = validateBondIssuanceState({
+    issuanceId: "ISSUE-1",
+    bondId: "BOND-1",
+    issuerEntityId: "hazbase-treasury",
+    issuedPrincipal: 1000,
+    outstandingPrincipal: 1000,
+    redeemedPrincipal: 0,
+    currencyAssetId: "bitcoin",
+    controllerXonly: "79be",
+    issuedAt: "2026-03-10T00:00:00Z",
+    status: "ISSUED",
+  });
+  const redeemed = buildRedeemedBondIssuanceState({
+    previous: issued,
+    amount: 1000,
+    redeemedAt: "2027-03-10T00:00:00Z",
+  });
+  const settlement = await buildSettlement(sdk, {
+    definitionValue: definition,
+    previousIssuanceValue: issued,
+    nextIssuanceValue: redeemed,
+    nextStateSimfPath: path.resolve(process.cwd(), "dist/docs/definitions/bond-issuance-anchor.simf"),
+    nextAmountSat: 1900,
+    maxFeeSat: 100,
+    outputBindingMode: "script-bound",
+  });
+  const closing = await prepareClosing(sdk, {
+    definitionValue: definition,
+    redeemedIssuanceValue: redeemed,
+    settlementDescriptorValue: settlement.descriptor,
+    closedAt: "2027-03-11T00:00:00Z",
+    closingReason: "REDEEMED",
+  });
+  const checks = verifyBondIssuanceHistory({
+    history: [issued, redeemed, closing.closed],
+  });
+  assert.equal(checks.chainLength, 3);
+  assert.equal(checks.latestStatus, "CLOSED");
+  assert.equal(checks.allRedemptionArithmeticValid, true);
+  assert.equal(checks.allStatusProgressionValid, true);
+  assert.equal(checks.fullHistoryVerified, true);
+});
+
+test("verifyIssuanceHistory works through public bond API", async () => {
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const definition = validateBondDefinition({
+    bondId: "BOND-1",
+    issuer: "Hazbase Treasury",
+    faceValue: 1000,
+    couponBps: 500,
+    issueDate: "2026-03-10",
+    maturityDate: 2344430,
+    currencyAssetId: "bitcoin",
+    controllerXonly: "79be",
+  });
+  const issued = validateBondIssuanceState({
+    issuanceId: "ISSUE-1",
+    bondId: "BOND-1",
+    issuerEntityId: "hazbase-treasury",
+    issuedPrincipal: 1000,
+    outstandingPrincipal: 1000,
+    redeemedPrincipal: 0,
+    currencyAssetId: "bitcoin",
+    controllerXonly: "79be",
+    issuedAt: "2026-03-10T00:00:00Z",
+    status: "ISSUED",
+  });
+  const partial = buildRedeemedBondIssuanceState({
+    previous: issued,
+    amount: 250,
+    redeemedAt: "2027-03-10T00:00:00Z",
+  });
+  const result = await verifyIssuanceHistory(sdk, {
+    definitionValue: definition,
+    issuanceHistoryValues: [issued, partial],
+  });
+  assert.equal(result.verified, true);
+  assert.equal(result.report.issuanceLineageTrust?.chainLength, 2);
+  assert.equal(result.report.issuanceLineageTrust?.fullHistoryVerified, true);
+});
+
 test("bond verify keeps on-chain anchor verified when artifact is saved outside source tree", async (t) => {
   try {
     await execFileAsync("simc", ["--version"]);
@@ -399,6 +543,7 @@ test("public bond client surface exposes business methods only", () => {
 
   assert.equal(typeof sdk.bonds.define, "function");
   assert.equal(typeof sdk.bonds.prepareRedemption, "function");
+  assert.equal(typeof sdk.bonds.verifyIssuanceHistory, "function");
   assert.equal(typeof sdk.bonds.buildSettlement, "function");
   assert.equal(typeof sdk.bonds.prepareClosing, "function");
   assert.equal("compileBondRedemptionMachine" in sdk.bonds, false);
@@ -435,6 +580,18 @@ test("buildBondPayload returns bridge-ready trust summary", async (t) => {
     definitionPath,
     issuancePath,
   });
+  const evidence = await exportEvidence(sdk, {
+    artifactPath,
+    definitionPath,
+    issuancePath,
+    issuanceHistoryPaths: [issuancePath],
+  });
+  const finality = await exportFinalityPayload(sdk, {
+    artifactPath,
+    definitionPath,
+    issuancePath,
+    issuanceHistoryPaths: [issuancePath],
+  });
 
   assert.equal(result.payload.bondId, "BOND-2026-001");
   assert.equal(result.payload.issuanceId, "BOND-2026-001-ISSUE-1");
@@ -443,6 +600,10 @@ test("buildBondPayload returns bridge-ready trust summary", async (t) => {
   assert.equal(result.trust.definitionTrust.onChainAnchorVerified, true);
   assert.equal(result.trust.issuanceTrust.onChainAnchorVerified, true);
   assert.equal(result.payload.crossChecks.principalInvariantValid, true);
+  assert.equal(evidence.trustSummary.lineage?.lineageKind, "state-history");
+  assert.equal(evidence.trustSummary.lineage?.fullLineageVerified, true);
+  assert.equal(finality.trustSummary.lineage?.lineageKind, "state-history");
+  assert.equal(finality.trustSummary.lineage?.fullLineageVerified, true);
 });
 
 test("compileBondTransition compiles previous and next issuance state into a new artifact", async (t) => {

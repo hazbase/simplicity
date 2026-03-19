@@ -9,6 +9,7 @@ import {
   LPPositionReceiptStatus,
 } from "../core/types";
 import { ValidationError } from "../core/errors";
+import { verifyHashLinkedLineage } from "../core/lineage";
 import { sha256HexUtf8, stableStringify } from "../core/summary";
 import { schnorrPublicKeyFromPrivkeyHex, schnorrSignHex, schnorrVerifyHex } from "../core/schnorr";
 
@@ -482,16 +483,21 @@ export function validateFundCrossChecks(
   return result;
 }
 
-export function verifyLPPositionReceiptEnvelope(input: {
+export async function verifyLPPositionReceiptEnvelope(input: {
   envelope: LPPositionReceiptEnvelope;
   expectedManagerXonly?: string;
-}): {
+  previousEnvelope?: LPPositionReceiptEnvelope;
+}): Promise<{
   positionReceiptHashMatch: boolean;
   sequenceMatch: boolean;
   sequenceMonotonic: boolean;
   attestingSignerMatch: boolean;
   attestationVerified: boolean;
-} {
+  previousEnvelopeProvided: boolean;
+  previousReceiptHashMatch: boolean;
+  previousSequenceMatch: boolean;
+  continuityVerified: boolean;
+}> {
   const envelope = validateLPPositionReceiptEnvelope(input.envelope);
   const receiptSummary = summarizeLPPositionReceipt(envelope.receipt);
   const digestHex = buildPositionReceiptAttestationMessageHash({
@@ -510,29 +516,194 @@ export function verifyLPPositionReceiptEnvelope(input: {
     : true;
   const attestationVerified = positionReceiptHashMatch
     && sequenceMatch
-    && schnorrVerifyHex(envelope.attestation.signature, digestHex, envelope.attestation.managerXonly);
+    && await schnorrVerifyHex(envelope.attestation.signature, digestHex, envelope.attestation.managerXonly);
+  const previousEnvelopeProvided = Boolean(input.previousEnvelope);
+  const previousEnvelope = input.previousEnvelope ? validateLPPositionReceiptEnvelope(input.previousEnvelope) : undefined;
+  const previousSummary = previousEnvelope ? summarizeLPPositionReceipt(previousEnvelope.receipt) : undefined;
+  const previousReceiptHashMatch = envelope.receipt.sequence === 0
+    ? !previousEnvelope
+    : previousSummary
+      ? envelope.receipt.previousReceiptHash === previousSummary.hash
+      : false;
+  const previousSequenceMatch = envelope.receipt.sequence === 0
+    ? !previousEnvelope
+    : previousEnvelope
+      ? previousEnvelope.receipt.sequence + 1 === envelope.receipt.sequence
+      : false;
+  const previousAttestingSignerMatch = previousEnvelope && input.expectedManagerXonly
+    ? previousEnvelope.attestation.managerXonly.toLowerCase() === input.expectedManagerXonly.toLowerCase()
+    : true;
+  const previousAttestationVerified = previousEnvelope
+    ? previousEnvelope.attestation.positionReceiptHash === previousSummary?.hash
+      && previousEnvelope.attestation.sequence === previousEnvelope.receipt.sequence
+      && await schnorrVerifyHex(
+        previousEnvelope.attestation.signature,
+        buildPositionReceiptAttestationMessageHash({
+          fundId: previousEnvelope.receipt.fundId,
+          positionId: previousEnvelope.receipt.positionId,
+          positionReceiptHash: previousSummary!.hash,
+          sequence: previousEnvelope.receipt.sequence,
+        }),
+        previousEnvelope.attestation.managerXonly,
+      )
+    : envelope.receipt.sequence === 0;
+  const previousSequenceMonotonic = previousEnvelope
+    ? previousEnvelope.receipt.sequence === 0
+      ? !previousEnvelope.receipt.previousReceiptHash
+      : Boolean(previousEnvelope.receipt.previousReceiptHash)
+    : envelope.receipt.sequence === 0;
+  const continuityVerified = envelope.receipt.sequence === 0
+    ? !previousEnvelope
+    : previousEnvelopeProvided
+      && previousReceiptHashMatch
+      && previousSequenceMatch
+      && previousAttestingSignerMatch
+      && previousAttestationVerified
+      && previousSequenceMonotonic;
   return {
     positionReceiptHashMatch,
     sequenceMatch,
     sequenceMonotonic,
     attestingSignerMatch,
     attestationVerified,
+    previousEnvelopeProvided,
+    previousReceiptHashMatch,
+    previousSequenceMatch,
+    continuityVerified,
   };
 }
 
-export function signLPPositionReceipt(input: {
+export async function verifyLPPositionReceiptEnvelopeChain(input: {
+  envelopes: LPPositionReceiptEnvelope[];
+  expectedManagerXonly?: string;
+}): Promise<{
+  chainLength: number;
+  latestSequence?: number;
+  startsAtGenesis: boolean;
+  latestSequenceCovered: boolean;
+  sequenceContiguous: boolean;
+  fundConsistent: boolean;
+  positionConsistent: boolean;
+  lpConsistent: boolean;
+  callConsistent: boolean;
+  currencyConsistent: boolean;
+  lpXonlyConsistent: boolean;
+  attestingSignerConsistent: boolean;
+  allPositionReceiptHashMatch: boolean;
+  allSequenceMatch: boolean;
+  allSequenceMonotonic: boolean;
+  allAttestingSignerMatch: boolean;
+  allAttestationVerified: boolean;
+  allContinuityVerified: boolean;
+  fullChainVerified: boolean;
+  stepChecks: Awaited<ReturnType<typeof verifyLPPositionReceiptEnvelope>>[];
+}> {
+  if (input.envelopes.length === 0) {
+    throw new ValidationError("position receipt chain must include at least one envelope", {
+      code: "FUND_POSITION_CHAIN_REQUIRED",
+    });
+  }
+
+  const envelopes = input.envelopes.map((envelope) => validateLPPositionReceiptEnvelope(envelope));
+  const first = envelopes[0]!;
+  const firstSigner = first.attestation.managerXonly.toLowerCase();
+  const stepChecks = [];
+
+  for (let index = 0; index < envelopes.length; index += 1) {
+    stepChecks.push(await verifyLPPositionReceiptEnvelope({
+      envelope: envelopes[index]!,
+      expectedManagerXonly: input.expectedManagerXonly,
+      previousEnvelope: index > 0 ? envelopes[index - 1] : undefined,
+    }));
+  }
+
+  const lineage = verifyHashLinkedLineage({
+    entries: envelopes,
+    summarize: (envelope) => summarizeLPPositionReceipt(envelope.receipt),
+    getPreviousHash: (envelope) => envelope.receipt.previousReceiptHash,
+    isGenesis: (envelope) => envelope.receipt.sequence === 0 && !envelope.receipt.previousReceiptHash,
+    consistencyChecks: {
+      fundConsistent: (envelope, base) => envelope.receipt.fundId === base.receipt.fundId,
+      positionConsistent: (envelope, base) => envelope.receipt.positionId === base.receipt.positionId,
+      lpConsistent: (envelope, base) => envelope.receipt.lpId === base.receipt.lpId,
+      callConsistent: (envelope, base) => envelope.receipt.callId === base.receipt.callId,
+      currencyConsistent: (envelope, base) => envelope.receipt.currencyAssetId === base.receipt.currencyAssetId,
+      lpXonlyConsistent: (envelope, base) => envelope.receipt.lpXonly === base.receipt.lpXonly,
+    },
+  });
+  const startsAtGenesis = lineage.startsAtGenesis;
+  const latestSequence = envelopes.at(-1)?.receipt.sequence;
+  const latestSequenceCovered = latestSequence === envelopes.length - 1;
+  const sequenceContiguous = envelopes.every((envelope, index) => envelope.receipt.sequence === first.receipt.sequence + index);
+  const fundConsistent = lineage.consistency.fundConsistent;
+  const positionConsistent = lineage.consistency.positionConsistent;
+  const lpConsistent = lineage.consistency.lpConsistent;
+  const callConsistent = lineage.consistency.callConsistent;
+  const currencyConsistent = lineage.consistency.currencyConsistent;
+  const lpXonlyConsistent = lineage.consistency.lpXonlyConsistent;
+  const attestingSignerConsistent = envelopes.every(
+    (envelope) => envelope.attestation.managerXonly.toLowerCase() === firstSigner,
+  );
+  const allPositionReceiptHashMatch = stepChecks.every((check) => check.positionReceiptHashMatch);
+  const allSequenceMatch = stepChecks.every((check) => check.sequenceMatch);
+  const allSequenceMonotonic = stepChecks.every((check) => check.sequenceMonotonic);
+  const allAttestingSignerMatch = stepChecks.every((check) => check.attestingSignerMatch);
+  const allAttestationVerified = stepChecks.every((check) => check.attestationVerified);
+  const allContinuityVerified = stepChecks.every((check, index) => (index === 0 ? true : check.continuityVerified));
+  const fullChainVerified = startsAtGenesis
+    && latestSequenceCovered
+    && sequenceContiguous
+    && fundConsistent
+    && positionConsistent
+    && lpConsistent
+    && callConsistent
+    && currencyConsistent
+    && lpXonlyConsistent
+    && attestingSignerConsistent
+    && allPositionReceiptHashMatch
+    && allSequenceMatch
+    && allSequenceMonotonic
+    && allAttestingSignerMatch
+    && allAttestationVerified
+    && allContinuityVerified;
+
+  return {
+    chainLength: envelopes.length,
+    latestSequence,
+    startsAtGenesis,
+    latestSequenceCovered,
+    sequenceContiguous,
+    fundConsistent,
+    positionConsistent,
+    lpConsistent,
+    callConsistent,
+    currencyConsistent,
+    lpXonlyConsistent,
+    attestingSignerConsistent,
+    allPositionReceiptHashMatch,
+    allSequenceMatch,
+    allSequenceMonotonic,
+    allAttestingSignerMatch,
+    allAttestationVerified,
+    allContinuityVerified,
+    fullChainVerified,
+    stepChecks,
+  };
+}
+
+export async function signLPPositionReceipt(input: {
   receipt: LPPositionReceipt;
   managerXonly: string;
   signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
   signedAt?: string;
-}): LPPositionReceiptEnvelope {
+}): Promise<LPPositionReceiptEnvelope> {
   const receipt = validateLPPositionReceipt(input.receipt);
   if (input.signer.type !== "schnorrPrivkeyHex") {
     throw new ValidationError("position receipt attestation signer must be schnorrPrivkeyHex", {
       code: "FUND_POSITION_ATTESTATION_SIGNER_TYPE_INVALID",
     });
   }
-  const derivedManagerXonly = schnorrPublicKeyFromPrivkeyHex(input.signer.privkeyHex);
+  const derivedManagerXonly = await schnorrPublicKeyFromPrivkeyHex(input.signer.privkeyHex);
   if (derivedManagerXonly !== input.managerXonly.toLowerCase()) {
     throw new ValidationError("position receipt attestation signer does not match managerXonly", {
       code: "FUND_POSITION_ATTESTATION_SIGNER_MISMATCH",
@@ -556,7 +727,7 @@ export function signLPPositionReceipt(input: {
       sequence: receipt.sequence,
       managerXonly: derivedManagerXonly,
       signedAt,
-      signature: schnorrSignHex(digestHex, input.signer.privkeyHex),
+      signature: await schnorrSignHex(digestHex, input.signer.privkeyHex),
       scheme: "bip340-sha256",
     },
   });

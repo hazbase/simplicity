@@ -42,6 +42,11 @@ import {
   resolveOutputBindingDecision,
 } from "../core/outputBinding";
 import {
+  buildLineageTrustBase,
+  buildVerificationTrustSections,
+  buildVerificationTrustSummary,
+} from "../core/reporting";
+import {
   buildClaimedCapitalCallState,
   buildDistributionDescriptor,
   buildFundClosingDescriptor,
@@ -66,6 +71,7 @@ import {
   validateLPPositionReceipt,
   validateLPPositionReceiptEnvelope,
   verifyLPPositionReceiptEnvelope,
+  verifyLPPositionReceiptEnvelopeChain,
 } from "./fundValidation";
 
 const FUND_VERIFICATION_REPORT_SCHEMA_VERSION: FundVerificationReportSchemaVersion = "fund-verification-report/v1";
@@ -379,8 +385,23 @@ function buildRolloverWitness() {
   };
 }
 
-function buildRefundWitness() {
-  return { values: {} };
+function buildRefundWitness(descriptor: FundPayoutDescriptor) {
+  return {
+    values: {
+      EXPECTED_PAYOUT_OUTPUT_HASH: {
+        type: "u256",
+        value: `0x${descriptor.nextOutputHash ?? "0000000000000000000000000000000000000000000000000000000000000000"}`,
+      },
+      EXPECTED_PAYOUT_OUTPUT_SCRIPT_HASH: {
+        type: "u256",
+        value: `0x${descriptor.nextOutputScriptHash ?? "0000000000000000000000000000000000000000000000000000000000000000"}`,
+      },
+      OUTPUT_BINDING_MODE: {
+        type: "u8",
+        value: buildBindingModeWitnessValue(descriptor.outputBindingMode),
+      },
+    },
+  };
 }
 
 function buildDistributionWitness(descriptor: FundPayoutDescriptor) {
@@ -481,6 +502,25 @@ async function loadPositionReceiptEnvelopeDocument(
     receiptSummary: summarizeLPPositionReceipt(value.receipt),
     envelopeSummary: summarizeLPPositionReceiptEnvelope(value),
   };
+}
+
+async function loadPositionReceiptEnvelopeChainDocuments(
+  sdk: SimplicityClient,
+  input: {
+    positionReceiptChainPaths?: string[];
+    positionReceiptChainValues?: LPPositionReceiptEnvelope[];
+  },
+) {
+  const combinedPaths = [...(input.positionReceiptChainPaths ?? [])];
+  const combinedValues = [...(input.positionReceiptChainValues ?? [])];
+  const results = [];
+  for (const positionReceiptPath of combinedPaths) {
+    results.push(await loadPositionReceiptEnvelopeDocument(sdk, { positionReceiptPath }));
+  }
+  for (const positionReceiptValue of combinedValues) {
+    results.push(await loadPositionReceiptEnvelopeDocument(sdk, { positionReceiptValue }));
+  }
+  return results;
 }
 
 async function loadDistributionDocument(
@@ -588,8 +628,39 @@ async function loadClosingDocument(
   return { descriptor, value, summary: summarizeFundClosingDescriptor(value) };
 }
 
-function buildBaseFundReport(): FundVerificationReport {
-  return { schemaVersion: FUND_VERIFICATION_REPORT_SCHEMA_VERSION };
+function buildEmptyFundDefinitionTrust(): NonNullable<FundVerificationReport["artifactTrust"]>["definition"] {
+  return {
+    artifactMatch: false,
+    onChainAnchorPresent: false,
+    onChainAnchorVerified: false,
+    effectiveMode: "none",
+  };
+}
+
+function buildEmptyFundStateTrust(): NonNullable<FundVerificationReport["stateTrust"]> {
+  return {
+    artifactMatch: false,
+    onChainAnchorPresent: false,
+    onChainAnchorVerified: false,
+    effectiveMode: "none",
+  };
+}
+
+function buildBaseFundReport(input?: {
+  definitionTrust?: NonNullable<FundVerificationReport["artifactTrust"]>["definition"];
+  stateTrust?: NonNullable<FundVerificationReport["stateTrust"]>;
+  requireArtifactTrust?: boolean;
+}): FundVerificationReport {
+  return {
+    schemaVersion: FUND_VERIFICATION_REPORT_SCHEMA_VERSION,
+    ...buildVerificationTrustSections({
+      definitionTrust: input?.definitionTrust,
+      stateTrust: input?.stateTrust,
+      requireArtifactTrust: input?.requireArtifactTrust,
+      emptyDefinitionTrust: buildEmptyFundDefinitionTrust(),
+      emptyStateTrust: buildEmptyFundStateTrust(),
+    }),
+  };
 }
 
 async function compileOpenCapitalCallContract(
@@ -714,8 +785,8 @@ async function requireRefundOnlyArtifact(
   return artifact;
 }
 
-function ensureVerifiedEnvelope(definition: FundDefinition, envelope: LPPositionReceiptEnvelope) {
-  const checks = verifyLPPositionReceiptEnvelope({
+async function ensureVerifiedEnvelope(definition: FundDefinition, envelope: LPPositionReceiptEnvelope) {
+  const checks = await verifyLPPositionReceiptEnvelope({
     envelope,
     expectedManagerXonly: definition.managerXonly,
   });
@@ -734,10 +805,49 @@ function ensureVerifiedEnvelope(definition: FundDefinition, envelope: LPPosition
   return checks;
 }
 
+async function ensureVerifiedEnvelopeContinuity(
+  definition: FundDefinition,
+  envelope: LPPositionReceiptEnvelope,
+  previousEnvelope?: LPPositionReceiptEnvelope,
+) {
+  const checks = await verifyLPPositionReceiptEnvelope({
+    envelope,
+    expectedManagerXonly: definition.managerXonly,
+    previousEnvelope,
+  });
+  if (
+    !checks.positionReceiptHashMatch
+    || !checks.sequenceMatch
+    || !checks.sequenceMonotonic
+    || !checks.attestingSignerMatch
+    || !checks.attestationVerified
+  ) {
+    throw new ValidationError("Position receipt envelope must be attested and internally consistent", {
+      code: "FUND_POSITION_ENVELOPE_VERIFY_FAILED",
+      checks,
+    });
+  }
+  if (envelope.receipt.sequence > 0) {
+    if (!previousEnvelope) {
+      throw new ValidationError("sequence>0 receipts require the immediate previous receipt envelope", {
+        code: "FUND_PREVIOUS_POSITION_ENVELOPE_REQUIRED",
+        checks,
+      });
+    }
+    if (!checks.continuityVerified) {
+      throw new ValidationError("Position receipt envelope continuity must match the immediate previous envelope", {
+        code: "FUND_POSITION_ENVELOPE_CONTINUITY_VERIFY_FAILED",
+        checks,
+      });
+    }
+  }
+  return checks;
+}
+
 function buildReceiptTrust(input: {
   generated: boolean;
   envelope: LPPositionReceiptEnvelope;
-  checks: ReturnType<typeof verifyLPPositionReceiptEnvelope>;
+  checks: Awaited<ReturnType<typeof verifyLPPositionReceiptEnvelope>>;
 }): FundVerificationReport["receiptTrust"] {
   return {
     generated: input.generated,
@@ -748,6 +858,88 @@ function buildReceiptTrust(input: {
     sequence: input.envelope.receipt.sequence,
     sequenceMonotonic: input.checks.sequenceMonotonic && input.checks.sequenceMatch,
     attestingSignerMatch: input.checks.attestingSignerMatch,
+    previousEnvelopeProvided: input.checks.previousEnvelopeProvided,
+    previousReceiptHashMatch: input.checks.previousReceiptHashMatch,
+    previousSequenceMatch: input.checks.previousSequenceMatch,
+    continuityVerified: input.checks.continuityVerified,
+  };
+}
+
+function buildReceiptChainTrust(
+  input: Awaited<ReturnType<typeof verifyLPPositionReceiptEnvelopeChain>>,
+): FundVerificationReport["receiptChainTrust"] {
+  const identityConsistent =
+    input.fundConsistent
+    && input.positionConsistent
+    && input.lpConsistent
+    && input.callConsistent
+    && input.currencyConsistent
+    && input.lpXonlyConsistent
+    && input.attestingSignerConsistent;
+  return {
+    ...buildLineageTrustBase({
+      lineageKind: "receipt-chain",
+      chainLength: input.chainLength,
+      latestOrdinal: input.latestSequence ?? Math.max(0, input.chainLength - 1),
+      allHashLinksVerified: input.allContinuityVerified && input.allPositionReceiptHashMatch,
+      identityConsistent,
+      fullLineageVerified: input.fullChainVerified,
+    }),
+    latestSequence: input.latestSequence,
+    startsAtGenesis: input.startsAtGenesis,
+    latestSequenceCovered: input.latestSequenceCovered,
+    sequenceContiguous: input.sequenceContiguous,
+    fundConsistent: input.fundConsistent,
+    positionConsistent: input.positionConsistent,
+    lpConsistent: input.lpConsistent,
+    callConsistent: input.callConsistent,
+    currencyConsistent: input.currencyConsistent,
+    lpXonlyConsistent: input.lpXonlyConsistent,
+    attestingSignerConsistent: input.attestingSignerConsistent,
+    allPositionReceiptHashMatch: input.allPositionReceiptHashMatch,
+    allSequenceMatch: input.allSequenceMatch,
+    allSequenceMonotonic: input.allSequenceMonotonic,
+    allAttestingSignerMatch: input.allAttestingSignerMatch,
+    allAttestationVerified: input.allAttestationVerified,
+    allContinuityVerified: input.allContinuityVerified,
+    fullChainVerified: input.fullChainVerified,
+  };
+}
+
+function resolveReceiptChainContext(input: {
+  receipt?: Awaited<ReturnType<typeof loadPositionReceiptEnvelopeDocument>>;
+  previousEnvelope?: Awaited<ReturnType<typeof loadPositionReceiptEnvelopeDocument>>;
+  chainEntries?: Awaited<ReturnType<typeof loadPositionReceiptEnvelopeChainDocuments>>;
+}) {
+  const chainEntries = input.chainEntries && input.chainEntries.length > 0
+    ? input.chainEntries
+    : input.receipt
+      ? [
+          ...(input.previousEnvelope ? [input.previousEnvelope] : []),
+          input.receipt,
+        ]
+      : [];
+  const receipt = input.receipt ?? chainEntries.at(-1);
+  if (!receipt) {
+    throw new ValidationError("position receipt envelope is required", {
+      code: "FUND_POSITION_RECEIPT_REQUIRED",
+    });
+  }
+  const latestChainEntry = chainEntries.at(-1);
+  if (latestChainEntry && latestChainEntry.envelopeSummary.hash !== receipt.envelopeSummary.hash) {
+    throw new ValidationError("position receipt chain must end with the provided latest envelope", {
+      code: "FUND_POSITION_CHAIN_LATEST_MISMATCH",
+      latestEnvelopeHash: receipt.envelopeSummary.hash,
+      chainLatestEnvelopeHash: latestChainEntry.envelopeSummary.hash,
+    });
+  }
+  const previousEnvelope = chainEntries.length > 1
+    ? chainEntries[chainEntries.length - 2]
+    : input.previousEnvelope;
+  return {
+    receipt,
+    previousEnvelope,
+    chainEntries,
   };
 }
 
@@ -931,16 +1123,10 @@ export async function verifyCapitalCall(
         ? { definition: definitionVerification, state: stateVerification }
         : undefined,
     report: {
-      ...buildBaseFundReport(),
-      ...(definitionVerification && stateVerification
-        ? {
-            artifactTrust: {
-              definition: definitionVerification.trust,
-              state: stateVerification.trust,
-            },
-            stateTrust: stateVerification.trust,
-          }
-        : {}),
+      ...buildBaseFundReport({
+        definitionTrust: definitionVerification?.trust,
+        stateTrust: stateVerification?.trust,
+      }),
       capitalCallTrust: {
         capitalCallStage: deriveCapitalCallStage(capitalCall.value),
         cutoffMode: "rollover-window",
@@ -971,7 +1157,7 @@ export async function signPositionReceipt(
 ) {
   const definition = await loadFundDefinitionDocument(sdk, input);
   const receipt = await loadBarePositionReceiptDocument(sdk, input);
-  const positionReceiptEnvelope = signLPPositionReceipt({
+  const positionReceiptEnvelope = await signLPPositionReceipt({
     receipt: receipt.value,
     managerXonly: definition.value.managerXonly,
     signer: input.signer,
@@ -996,24 +1182,125 @@ export async function verifyPositionReceipt(
     definitionValue?: FundDefinition;
     positionReceiptPath?: string;
     positionReceiptValue?: LPPositionReceiptEnvelope;
+    previousPositionReceiptPath?: string;
+    previousPositionReceiptValue?: LPPositionReceiptEnvelope;
+    positionReceiptChainPaths?: string[];
+    positionReceiptChainValues?: LPPositionReceiptEnvelope[];
   },
 ) {
   const definition = await loadFundDefinitionDocument(sdk, input);
-  const envelope = await loadPositionReceiptEnvelopeDocument(sdk, input);
-  const receiptChecks = ensureVerifiedEnvelope(definition.value, envelope.value);
+  const envelope = input.positionReceiptPath || input.positionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, input)
+    : undefined;
+  const previousEnvelope = input.previousPositionReceiptPath || input.previousPositionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, {
+        positionReceiptPath: input.previousPositionReceiptPath,
+        positionReceiptValue: input.previousPositionReceiptValue,
+      })
+    : undefined;
+  const chainEntries = input.positionReceiptChainPaths || input.positionReceiptChainValues
+    ? await loadPositionReceiptEnvelopeChainDocuments(sdk, {
+        positionReceiptChainPaths: input.positionReceiptChainPaths,
+        positionReceiptChainValues: input.positionReceiptChainValues,
+      })
+    : [];
+  const context = resolveReceiptChainContext({
+    receipt: envelope,
+    previousEnvelope,
+    chainEntries,
+  });
+  const receiptChecks = await ensureVerifiedEnvelopeContinuity(
+    definition.value,
+    context.receipt.value,
+    context.previousEnvelope?.value,
+  );
+  const chainChecks = await verifyLPPositionReceiptEnvelopeChain({
+    envelopes: context.chainEntries.map((entry) => entry.value),
+    expectedManagerXonly: definition.value.managerXonly,
+  });
   return {
     verified: true,
     definition: definition.descriptor,
     definitionValue: definition.value,
     definitionSummary: definition.summary,
-    positionReceipt: envelope.descriptor,
-    positionReceiptValue: envelope.value,
-    positionReceiptSummary: envelope.receiptSummary,
-    positionReceiptEnvelopeSummary: envelope.envelopeSummary,
+    positionReceipt: context.receipt.descriptor,
+    positionReceiptValue: context.receipt.value,
+    positionReceiptSummary: context.receipt.receiptSummary,
+    positionReceiptEnvelopeSummary: context.receipt.envelopeSummary,
+    ...(context.previousEnvelope
+      ? {
+          previousPositionReceipt: context.previousEnvelope.descriptor,
+          previousPositionReceiptValue: context.previousEnvelope.value,
+          previousPositionReceiptSummary: context.previousEnvelope.receiptSummary,
+          previousPositionReceiptEnvelopeSummary: context.previousEnvelope.envelopeSummary,
+        }
+      : {}),
+    ...(context.chainEntries.length > 0
+      ? {
+          positionReceiptChain: context.chainEntries.map((entry) => entry.descriptor),
+          positionReceiptChainValues: context.chainEntries.map((entry) => entry.value),
+          positionReceiptChainSummaries: context.chainEntries.map((entry) => entry.receiptSummary),
+          positionReceiptEnvelopeChainSummaries: context.chainEntries.map((entry) => entry.envelopeSummary),
+        }
+      : {}),
     receiptChecks,
+    receiptChainChecks: chainChecks,
     report: {
       ...buildBaseFundReport(),
-      receiptTrust: buildReceiptTrust({ generated: false, envelope: envelope.value, checks: receiptChecks }),
+      receiptTrust: buildReceiptTrust({ generated: false, envelope: context.receipt.value, checks: receiptChecks }),
+      receiptChainTrust: buildReceiptChainTrust(chainChecks),
+    } satisfies FundVerificationReport,
+  };
+}
+
+export async function verifyPositionReceiptChain(
+  sdk: SimplicityClient,
+  input: {
+    definitionPath?: string;
+    definitionValue?: FundDefinition;
+    positionReceiptChainPaths?: string[];
+    positionReceiptChainValues?: LPPositionReceiptEnvelope[];
+  },
+) {
+  const definition = await loadFundDefinitionDocument(sdk, input);
+  const chainEntries = await loadPositionReceiptEnvelopeChainDocuments(sdk, input);
+  const context = resolveReceiptChainContext({ chainEntries });
+  const receiptChecks = await ensureVerifiedEnvelopeContinuity(
+    definition.value,
+    context.receipt.value,
+    context.previousEnvelope?.value,
+  );
+  const chainChecks = await verifyLPPositionReceiptEnvelopeChain({
+    envelopes: context.chainEntries.map((entry) => entry.value),
+    expectedManagerXonly: definition.value.managerXonly,
+  });
+  return {
+    verified: chainChecks.fullChainVerified,
+    definition: definition.descriptor,
+    definitionValue: definition.value,
+    definitionSummary: definition.summary,
+    positionReceipt: context.receipt.descriptor,
+    positionReceiptValue: context.receipt.value,
+    positionReceiptSummary: context.receipt.receiptSummary,
+    positionReceiptEnvelopeSummary: context.receipt.envelopeSummary,
+    ...(context.previousEnvelope
+      ? {
+          previousPositionReceipt: context.previousEnvelope.descriptor,
+          previousPositionReceiptValue: context.previousEnvelope.value,
+          previousPositionReceiptSummary: context.previousEnvelope.receiptSummary,
+          previousPositionReceiptEnvelopeSummary: context.previousEnvelope.envelopeSummary,
+        }
+      : {}),
+    positionReceiptChain: context.chainEntries.map((entry) => entry.descriptor),
+    positionReceiptChainValues: context.chainEntries.map((entry) => entry.value),
+    positionReceiptChainSummaries: context.chainEntries.map((entry) => entry.receiptSummary),
+    positionReceiptEnvelopeChainSummaries: context.chainEntries.map((entry) => entry.envelopeSummary),
+    receiptChecks,
+    receiptChainChecks: chainChecks,
+    report: {
+      ...buildBaseFundReport(),
+      receiptTrust: buildReceiptTrust({ generated: false, envelope: context.receipt.value, checks: receiptChecks }),
+      receiptChainTrust: buildReceiptChainTrust(chainChecks),
     } satisfies FundVerificationReport,
   };
 }
@@ -1070,13 +1357,13 @@ export async function inspectCapitalCallClaim(
     capitalCall: verified.capitalCallValue,
     effectiveAt: claimedAt,
   });
-  const positionReceiptEnvelope = signLPPositionReceipt({
+  const positionReceiptEnvelope = await signLPPositionReceipt({
     receipt: positionReceipt,
     managerXonly: definition.value.managerXonly,
     signer: input.signer,
     signedAt: claimedAt,
   });
-  const receiptChecks = ensureVerifiedEnvelope(definition.value, positionReceiptEnvelope);
+  const receiptChecks = await ensureVerifiedEnvelope(definition.value, positionReceiptEnvelope);
   const contract = sdk.fromArtifact(artifact);
   const inspect = await contract.inspectCall({
     wallet: input.wallet,
@@ -1220,6 +1507,15 @@ export async function inspectCapitalCallRefund(
     capitalCallValue?: CapitalCallState;
     refundAddress: string;
     refundedAt?: string;
+    nextOutputHash?: string;
+    outputForm?: {
+      assetForm?: OutputAssetForm;
+      amountForm?: OutputAmountForm;
+      nonceForm?: OutputNonceForm;
+      rangeProofForm?: OutputRangeProofForm;
+    };
+    rawOutput?: Partial<OutputRawFields>;
+    outputBindingMode?: BondOutputBindingMode;
     wallet: string;
     signer: { type: "schnorrPrivkeyHex"; privkeyHex: string };
     feeSat?: number;
@@ -1247,22 +1543,43 @@ export async function inspectCapitalCallRefund(
       },
     });
   }
+  const payout = await buildFundPayoutDescriptor(sdk, {
+    receiverAddress: input.refundAddress,
+    amountSat: refundAmountSat,
+    assetId: verified.capitalCallValue.currencyAssetId,
+    nextOutputHash: input.nextOutputHash,
+    outputForm: input.outputForm,
+    rawOutput: input.rawOutput,
+    outputBindingMode: input.outputBindingMode,
+  });
   const contract = sdk.fromArtifact(artifact);
   const inspect = await contract.inspectCall({
     wallet: input.wallet,
-    toAddress: input.refundAddress,
+    toAddress: payout.descriptor.receiverAddress,
     signer: input.signer,
-    sendAmount: satToBtcAmount(refundAmountSat),
+    sendAmount: satToBtcAmount(payout.descriptor.amountSat),
     feeSat,
     utxoPolicy: input.utxoPolicy,
-    witness: buildRefundWitness(),
+    witness: buildRefundWitness(payout.descriptor),
   });
   return {
     mode: "refund" as const,
     verified,
+    payoutDescriptor: payout.descriptor,
+    payoutSummary: payout.summary,
     refundedCapitalCall,
     inspect,
-    report: verified.report,
+    report: {
+      ...verified.report,
+      outputBindingTrust: buildFundOutputBindingReport({
+        descriptor: payout.descriptor,
+        supportedForm: payout.supportedForm,
+        reasonCode: payout.reasonCode,
+        autoDerived: payout.autoDerivedNextOutputHash,
+        fallbackReason: payout.fallbackReason,
+        bindingInputs: payout.bindingInputs,
+      }),
+    } satisfies FundVerificationReport,
   };
 }
 
@@ -1274,16 +1591,15 @@ export async function executeCapitalCallRefund(
   const artifact = await requireFundArtifact(sdk, input);
   const contract = sdk.fromArtifact(artifact);
   const feeSat = input.feeSat ?? 100;
-  const refundAmountSat = inspected.verified.capitalCallValue.amount - feeSat;
   const execution = await contract.execute({
     wallet: input.wallet,
-    toAddress: input.refundAddress,
+    toAddress: inspected.payoutDescriptor.receiverAddress,
     signer: input.signer,
-    sendAmount: satToBtcAmount(refundAmountSat),
+    sendAmount: satToBtcAmount(inspected.payoutDescriptor.amountSat),
     feeSat,
     utxoPolicy: input.utxoPolicy,
     broadcast: input.broadcast,
-    witness: buildRefundWitness(),
+    witness: buildRefundWitness(inspected.payoutDescriptor),
   });
   return {
     ...inspected,
@@ -1311,7 +1627,7 @@ export async function prepareDistribution(
 ) {
   const definition = await loadFundDefinitionDocument(sdk, input);
   const receipt = await loadPositionReceiptEnvelopeDocument(sdk, input);
-  const receiptChecks = ensureVerifiedEnvelope(definition.value, receipt.value);
+  const receiptChecks = await ensureVerifiedEnvelope(definition.value, receipt.value);
   const distribution = await loadDistributionDocument(sdk, {
     distributionPath: input.distributionPath,
     distributionValue: input.distributionValue,
@@ -1367,13 +1683,13 @@ export async function reconcilePosition(
 ) {
   const definition = await loadFundDefinitionDocument(sdk, input);
   const receipt = await loadPositionReceiptEnvelopeDocument(sdk, input);
-  ensureVerifiedEnvelope(definition.value, receipt.value);
+  await ensureVerifiedEnvelope(definition.value, receipt.value);
   const distributions = await loadDistributionDocuments(sdk, input);
   const reconciledReceiptValue = reconcileLPPositionReceipt({
     previousEnvelope: receipt.value,
     distributions: distributions.map((entry) => entry.value),
   });
-  const reconciledReceiptEnvelope = signLPPositionReceipt({
+  const reconciledReceiptEnvelope = await signLPPositionReceipt({
     receipt: reconciledReceiptValue,
     managerXonly: definition.value.managerXonly,
     signer: input.signer,
@@ -1414,7 +1730,7 @@ export async function verifyDistribution(
 ) {
   const definition = await loadFundDefinitionDocument(sdk, input);
   const receipt = await loadPositionReceiptEnvelopeDocument(sdk, input);
-  const receiptChecks = ensureVerifiedEnvelope(definition.value, receipt.value);
+  const receiptChecks = await ensureVerifiedEnvelope(definition.value, receipt.value);
   const distribution = await loadDistributionDocument(sdk, {
     distributionPath: input.distributionPath,
     distributionValue: input.distributionValue,
@@ -1468,16 +1784,10 @@ export async function verifyDistribution(
         ? { definition: definitionVerification, state: stateVerification }
         : undefined,
     report: {
-      ...buildBaseFundReport(),
-      ...(definitionVerification && stateVerification
-        ? {
-            artifactTrust: {
-              definition: definitionVerification.trust,
-              state: stateVerification.trust,
-            },
-            stateTrust: stateVerification.trust,
-          }
-        : {}),
+      ...buildBaseFundReport({
+        definitionTrust: definitionVerification?.trust,
+        stateTrust: stateVerification?.trust,
+      }),
       distributionTrust: {
         ...crossChecks,
         positionStatusEligible: crossChecks.positionStatusEligible && lpCommitted,
@@ -1591,6 +1901,10 @@ export async function prepareClosing(
     definitionValue?: FundDefinition;
     positionReceiptPath?: string;
     positionReceiptValue?: LPPositionReceiptEnvelope;
+    previousPositionReceiptPath?: string;
+    previousPositionReceiptValue?: LPPositionReceiptEnvelope;
+    positionReceiptChainPaths?: string[];
+    positionReceiptChainValues?: LPPositionReceiptEnvelope[];
     closingPath?: string;
     closingValue?: FundClosingDescriptor;
     closingId?: string;
@@ -1599,26 +1913,67 @@ export async function prepareClosing(
     closingReason?: FundClosingDescriptor["closingReason"];
   },
 ) {
-  const definition = input.definitionPath || input.definitionValue
-    ? await loadFundDefinitionDocument(sdk, input)
+  const definition = await loadFundDefinitionDocument(sdk, input);
+  const receipt = input.positionReceiptPath || input.positionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, input)
     : undefined;
-  const receipt = await loadPositionReceiptEnvelopeDocument(sdk, input);
-  const receiptChecks = definition ? ensureVerifiedEnvelope(definition.value, receipt.value) : verifyLPPositionReceiptEnvelope({ envelope: receipt.value });
+  const previousEnvelope = input.previousPositionReceiptPath || input.previousPositionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, {
+        positionReceiptPath: input.previousPositionReceiptPath,
+        positionReceiptValue: input.previousPositionReceiptValue,
+      })
+    : undefined;
+  const chainEntries = input.positionReceiptChainPaths || input.positionReceiptChainValues
+    ? await loadPositionReceiptEnvelopeChainDocuments(sdk, {
+        positionReceiptChainPaths: input.positionReceiptChainPaths,
+        positionReceiptChainValues: input.positionReceiptChainValues,
+      })
+    : [];
+  const context = resolveReceiptChainContext({
+    receipt,
+    previousEnvelope,
+    chainEntries,
+  });
+  const receiptChecks = await ensureVerifiedEnvelopeContinuity(
+    definition.value,
+    context.receipt.value,
+    context.previousEnvelope?.value,
+  );
+  const chainChecks = await verifyLPPositionReceiptEnvelopeChain({
+    envelopes: context.chainEntries.map((entry) => entry.value),
+    expectedManagerXonly: definition.value.managerXonly,
+  });
   const closing = await loadClosingDocument(sdk, {
     closingPath: input.closingPath,
     closingValue: input.closingValue,
-    positionReceipt: receipt.value.receipt,
+    positionReceipt: context.receipt.value.receipt,
     closingId: input.closingId,
     finalDistributionHashes: input.finalDistributionHashes,
     closedAt: input.closedAt,
     closingReason: input.closingReason,
   });
-  const checks = validateClosingAgainstReceipt(receipt.value.receipt, closing.value);
+  const checks = validateClosingAgainstReceipt(context.receipt.value.receipt, closing.value);
   return {
-    positionReceipt: receipt.descriptor,
-    positionReceiptValue: receipt.value,
-    positionReceiptSummary: receipt.receiptSummary,
-    positionReceiptEnvelopeSummary: receipt.envelopeSummary,
+    positionReceipt: context.receipt.descriptor,
+    positionReceiptValue: context.receipt.value,
+    positionReceiptSummary: context.receipt.receiptSummary,
+    positionReceiptEnvelopeSummary: context.receipt.envelopeSummary,
+    ...(context.previousEnvelope
+      ? {
+          previousPositionReceipt: context.previousEnvelope.descriptor,
+          previousPositionReceiptValue: context.previousEnvelope.value,
+          previousPositionReceiptSummary: context.previousEnvelope.receiptSummary,
+          previousPositionReceiptEnvelopeSummary: context.previousEnvelope.envelopeSummary,
+        }
+      : {}),
+    ...(context.chainEntries.length > 0
+      ? {
+          positionReceiptChain: context.chainEntries.map((entry) => entry.descriptor),
+          positionReceiptChainValues: context.chainEntries.map((entry) => entry.value),
+          positionReceiptChainSummaries: context.chainEntries.map((entry) => entry.receiptSummary),
+          positionReceiptEnvelopeChainSummaries: context.chainEntries.map((entry) => entry.envelopeSummary),
+        }
+      : {}),
     closing: closing.descriptor,
     closingValue: closing.value,
     closingSummary: closing.summary,
@@ -1629,9 +1984,10 @@ export async function prepareClosing(
       closingTrust: checks,
       receiptTrust: buildReceiptTrust({
         generated: false,
-        envelope: receipt.value,
+        envelope: context.receipt.value,
         checks: receiptChecks,
       }),
+      receiptChainTrust: buildReceiptChainTrust(chainChecks),
     } satisfies FundVerificationReport,
   };
 }
@@ -1643,23 +1999,71 @@ export async function verifyClosing(
     definitionValue?: FundDefinition;
     positionReceiptPath?: string;
     positionReceiptValue?: LPPositionReceiptEnvelope;
+    previousPositionReceiptPath?: string;
+    previousPositionReceiptValue?: LPPositionReceiptEnvelope;
+    positionReceiptChainPaths?: string[];
+    positionReceiptChainValues?: LPPositionReceiptEnvelope[];
     closingPath?: string;
     closingValue?: FundClosingDescriptor;
   },
 ) {
-  const definition = input.definitionPath || input.definitionValue
-    ? await loadFundDefinitionDocument(sdk, input)
+  const definition = await loadFundDefinitionDocument(sdk, input);
+  const receipt = input.positionReceiptPath || input.positionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, input)
     : undefined;
-  const receipt = await loadPositionReceiptEnvelopeDocument(sdk, input);
-  const receiptChecks = definition ? ensureVerifiedEnvelope(definition.value, receipt.value) : verifyLPPositionReceiptEnvelope({ envelope: receipt.value });
+  const previousEnvelope = input.previousPositionReceiptPath || input.previousPositionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, {
+        positionReceiptPath: input.previousPositionReceiptPath,
+        positionReceiptValue: input.previousPositionReceiptValue,
+      })
+    : undefined;
+  const chainEntries = input.positionReceiptChainPaths || input.positionReceiptChainValues
+    ? await loadPositionReceiptEnvelopeChainDocuments(sdk, {
+        positionReceiptChainPaths: input.positionReceiptChainPaths,
+        positionReceiptChainValues: input.positionReceiptChainValues,
+      })
+    : [];
+  const context = resolveReceiptChainContext({
+    receipt,
+    previousEnvelope,
+    chainEntries,
+  });
+  const receiptChecks = await ensureVerifiedEnvelopeContinuity(
+    definition.value,
+    context.receipt.value,
+    context.previousEnvelope?.value,
+  );
+  const chainChecks = await verifyLPPositionReceiptEnvelopeChain({
+    envelopes: context.chainEntries.map((entry) => entry.value),
+    expectedManagerXonly: definition.value.managerXonly,
+  });
   const closing = await loadClosingDocument(sdk, { closingPath: input.closingPath, closingValue: input.closingValue });
-  const checks = validateClosingAgainstReceipt(receipt.value.receipt, closing.value);
+  const checks = validateClosingAgainstReceipt(context.receipt.value.receipt, closing.value);
   return {
     verified: true,
-    positionReceipt: receipt.descriptor,
-    positionReceiptValue: receipt.value,
-    positionReceiptSummary: receipt.receiptSummary,
-    positionReceiptEnvelopeSummary: receipt.envelopeSummary,
+    definition: definition.descriptor,
+    definitionValue: definition.value,
+    definitionSummary: definition.summary,
+    positionReceipt: context.receipt.descriptor,
+    positionReceiptValue: context.receipt.value,
+    positionReceiptSummary: context.receipt.receiptSummary,
+    positionReceiptEnvelopeSummary: context.receipt.envelopeSummary,
+    ...(context.previousEnvelope
+      ? {
+          previousPositionReceipt: context.previousEnvelope.descriptor,
+          previousPositionReceiptValue: context.previousEnvelope.value,
+          previousPositionReceiptSummary: context.previousEnvelope.receiptSummary,
+          previousPositionReceiptEnvelopeSummary: context.previousEnvelope.envelopeSummary,
+        }
+      : {}),
+    ...(context.chainEntries.length > 0
+      ? {
+          positionReceiptChain: context.chainEntries.map((entry) => entry.descriptor),
+          positionReceiptChainValues: context.chainEntries.map((entry) => entry.value),
+          positionReceiptChainSummaries: context.chainEntries.map((entry) => entry.receiptSummary),
+          positionReceiptEnvelopeChainSummaries: context.chainEntries.map((entry) => entry.envelopeSummary),
+        }
+      : {}),
     closing: closing.descriptor,
     closingValue: closing.value,
     closingSummary: closing.summary,
@@ -1667,7 +2071,8 @@ export async function verifyClosing(
     report: {
       ...buildBaseFundReport(),
       closingTrust: checks,
-      receiptTrust: buildReceiptTrust({ generated: false, envelope: receipt.value, checks: receiptChecks }),
+      receiptTrust: buildReceiptTrust({ generated: false, envelope: context.receipt.value, checks: receiptChecks }),
+      receiptChainTrust: buildReceiptChainTrust(chainChecks),
     } satisfies FundVerificationReport,
   };
 }
@@ -1683,6 +2088,10 @@ export async function exportEvidence(
     capitalCallValue?: CapitalCallState;
     positionReceiptPath?: string;
     positionReceiptValue?: LPPositionReceiptEnvelope;
+    previousPositionReceiptPath?: string;
+    previousPositionReceiptValue?: LPPositionReceiptEnvelope;
+    positionReceiptChainPaths?: string[];
+    positionReceiptChainValues?: LPPositionReceiptEnvelope[];
     distributionPath?: string;
     distributionValue?: DistributionDescriptor;
     distributionPaths?: string[];
@@ -1696,6 +2105,25 @@ export async function exportEvidence(
   const capitalCall = input.capitalCallPath || input.capitalCallValue ? await loadCapitalCallDocument(sdk, input) : undefined;
   const receipt = input.positionReceiptPath || input.positionReceiptValue
     ? await loadPositionReceiptEnvelopeDocument(sdk, input)
+    : undefined;
+  const previousEnvelope = input.previousPositionReceiptPath || input.previousPositionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, {
+        positionReceiptPath: input.previousPositionReceiptPath,
+        positionReceiptValue: input.previousPositionReceiptValue,
+      })
+    : undefined;
+  const chainEntries = input.positionReceiptChainPaths || input.positionReceiptChainValues
+    ? await loadPositionReceiptEnvelopeChainDocuments(sdk, {
+        positionReceiptChainPaths: input.positionReceiptChainPaths,
+        positionReceiptChainValues: input.positionReceiptChainValues,
+      })
+    : [];
+  const receiptContext = receipt || chainEntries.length > 0
+    ? resolveReceiptChainContext({
+        receipt,
+        previousEnvelope,
+        chainEntries,
+      })
     : undefined;
   const distributions = input.distributionPath || input.distributionValue || input.distributionPaths || input.distributionValues
     ? await loadDistributionDocuments(sdk, {
@@ -1711,11 +2139,11 @@ export async function exportEvidence(
     : undefined;
   const artifact = input.artifact ?? (input.artifactPath ? (await sdk.loadArtifact(input.artifactPath)).artifact : undefined);
   const trust = input.verificationReportValue
-    ?? (distribution && receipt && artifact
+    ?? (distribution && receiptContext?.receipt && artifact
       ? (await verifyDistribution(sdk, {
           artifact,
           definitionValue: definition.value,
-          positionReceiptValue: receipt.value,
+          positionReceiptValue: receiptContext.receipt.value,
           distributionValue: distribution.value,
         })).report
       : capitalCall && artifact
@@ -1724,16 +2152,20 @@ export async function exportEvidence(
             definitionValue: definition.value,
             capitalCallValue: capitalCall.value,
           })).report
-        : closing && receipt
+        : closing && receiptContext?.receipt
           ? (await verifyClosing(sdk, {
               definitionValue: definition.value,
-              positionReceiptValue: receipt.value,
+              positionReceiptValue: receiptContext.receipt.value,
+              previousPositionReceiptValue: receiptContext.previousEnvelope?.value,
+              positionReceiptChainValues: receiptContext.chainEntries.map((entry) => entry.value),
               closingValue: closing.value,
             })).report
-          : receipt
+          : receiptContext?.receipt
             ? (await verifyPositionReceipt(sdk, {
                 definitionValue: definition.value,
-                positionReceiptValue: receipt.value,
+                positionReceiptValue: receiptContext.receipt.value,
+                previousPositionReceiptValue: receiptContext.previousEnvelope?.value,
+                positionReceiptChainValues: receiptContext.chainEntries.map((entry) => entry.value),
               })).report
             : buildBaseFundReport());
   const renderedSourceHash = artifact?.source.simfPath && existsSync(artifact.source.simfPath)
@@ -1744,16 +2176,22 @@ export async function exportEvidence(
     ...(artifact ? { artifact } : {}),
     definition: definition.summary,
     ...(capitalCall ? { capitalCall: capitalCall.summary } : {}),
-    ...(receipt
+    ...(receiptContext?.receipt
       ? {
-          positionReceipt: receipt.receiptSummary,
-          positionReceiptEnvelope: receipt.envelopeSummary,
+          positionReceipt: receiptContext.receipt.receiptSummary,
+          positionReceiptEnvelope: receiptContext.receipt.envelopeSummary,
         }
       : {}),
     ...(distribution ? { distribution: distribution.summary } : {}),
     ...(distributions.length > 1 ? { distributions: distributions.map((entry) => entry.summary) } : {}),
     ...(closing ? { closing: closing.summary } : {}),
     trust,
+    trustSummary: buildVerificationTrustSummary({
+      definitionTrust: trust.artifactTrust?.definition,
+      stateTrust: trust.stateTrust,
+      bindingMode: trust.outputBindingTrust?.mode ?? "none",
+      lineageTrust: trust.receiptChainTrust,
+    }),
     renderedSourceHash,
     sourceVerificationMode: renderedSourceHash ? "source-reloaded" : "artifact-only",
     ...(artifact
@@ -1778,6 +2216,25 @@ export async function exportFinalityPayload(
   const receipt = input.positionReceiptPath || input.positionReceiptValue
     ? await loadPositionReceiptEnvelopeDocument(sdk, input)
     : undefined;
+  const previousEnvelope = input.previousPositionReceiptPath || input.previousPositionReceiptValue
+    ? await loadPositionReceiptEnvelopeDocument(sdk, {
+        positionReceiptPath: input.previousPositionReceiptPath,
+        positionReceiptValue: input.previousPositionReceiptValue,
+      })
+    : undefined;
+  const chainEntries = input.positionReceiptChainPaths || input.positionReceiptChainValues
+    ? await loadPositionReceiptEnvelopeChainDocuments(sdk, {
+        positionReceiptChainPaths: input.positionReceiptChainPaths,
+        positionReceiptChainValues: input.positionReceiptChainValues,
+      })
+    : [];
+  const receiptContext = receipt || chainEntries.length > 0
+    ? resolveReceiptChainContext({
+        receipt,
+        previousEnvelope,
+        chainEntries,
+      })
+    : undefined;
   const distributions = input.distributionPath || input.distributionValue || input.distributionPaths || input.distributionValues
     ? await loadDistributionDocuments(sdk, {
         distributionPath: input.distributionPath,
@@ -1790,7 +2247,7 @@ export async function exportFinalityPayload(
   const closing = input.closingPath || input.closingValue
     ? await loadClosingDocument(sdk, { closingPath: input.closingPath, closingValue: input.closingValue })
     : undefined;
-  const lpId = closing?.value.lpId ?? distribution?.value.lpId ?? receipt?.value.receipt.lpId ?? capitalCall?.value.lpId;
+  const lpId = closing?.value.lpId ?? distribution?.value.lpId ?? receiptContext?.receipt.value.receipt.lpId ?? capitalCall?.value.lpId;
   if (!lpId) {
     throw new ValidationError("Finality payload requires at least one LP-linked document", {
       code: "FUND_FINALITY_LP_ID_REQUIRED",
@@ -1801,22 +2258,20 @@ export async function exportFinalityPayload(
     fundId: definition.value.fundId,
     lpId,
     ...(capitalCall?.value.callId ? { callId: capitalCall.value.callId } : {}),
-    ...(receipt?.value.receipt.positionId ?? distribution?.value.positionId ?? closing?.value.positionId
-      ? { positionId: receipt?.value.receipt.positionId ?? distribution?.value.positionId ?? closing?.value.positionId }
+    ...(receiptContext?.receipt.value.receipt.positionId ?? distribution?.value.positionId ?? closing?.value.positionId
+      ? {
+          positionId: receiptContext?.receipt.value.receipt.positionId ?? distribution?.value.positionId ?? closing?.value.positionId,
+        }
       : {}),
     definitionHash: definition.summary.hash,
     capitalCallStateHash: capitalCall?.summary.hash ?? null,
-    positionReceiptHash: receipt?.receiptSummary.hash ?? null,
-    positionReceiptEnvelopeHash: receipt?.envelopeSummary.hash ?? null,
+    positionReceiptHash: receiptContext?.receipt.receiptSummary.hash ?? null,
+    positionReceiptEnvelopeHash: receiptContext?.receipt.envelopeSummary.hash ?? null,
     distributionHash: distribution?.summary.hash ?? null,
     distributionHashes: distributions.length > 0 ? distributions.map((entry) => entry.summary.hash) : null,
     closingHash: closing?.summary.hash ?? null,
     bindingMode: evidence.trust.outputBindingTrust?.mode ?? "none",
     trust: evidence.trust,
-    trustSummary: {
-      definition: evidence.trust.artifactTrust?.definition,
-      state: evidence.trust.stateTrust,
-      bindingMode: evidence.trust.outputBindingTrust?.mode ?? "none",
-    },
+    trustSummary: evidence.trustSummary,
   };
 }

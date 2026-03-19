@@ -38,6 +38,15 @@ function hasFlag(name: string): boolean {
   return process.argv.includes(`--${name}`);
 }
 
+function parseJsonArg<T = unknown>(name: string): T | undefined {
+  const value = getArg(name);
+  return value ? (JSON.parse(value) as T) : undefined;
+}
+
+function parseJsonArgs<T = unknown>(name: string): T[] {
+  return getMultiArgs(name).map((value) => JSON.parse(value) as T);
+}
+
 function requireArg(name: string): string {
   const value = getArg(name);
   if (!value) throw new Error(`Missing required arg: --${name}`);
@@ -915,6 +924,12 @@ function formatBondEvidenceSummary(input: {
   closingHash?: string | null;
   renderedSourceHash?: string | null;
   sourceVerificationMode?: string;
+  lineageKind?: string | null;
+  latestOrdinal?: number | null;
+  allHashLinksVerified?: boolean | null;
+  identityConsistent?: boolean | null;
+  fullLineageVerified?: boolean | null;
+  fullHistoryVerified?: boolean | null;
 }): string {
   return [
     `definitionHash=${input.definitionHash}`,
@@ -923,6 +938,20 @@ function formatBondEvidenceSummary(input: {
     input.closingHash ? `closingHash=${input.closingHash}` : undefined,
     input.renderedSourceHash ? `renderedSourceHash=${input.renderedSourceHash}` : undefined,
     input.sourceVerificationMode ? `sourceVerificationMode=${input.sourceVerificationMode}` : undefined,
+    input.lineageKind ? `lineageKind=${input.lineageKind}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    input.allHashLinksVerified !== undefined && input.allHashLinksVerified !== null
+      ? `allHashLinksVerified=${input.allHashLinksVerified}`
+      : undefined,
+    input.identityConsistent !== undefined && input.identityConsistent !== null
+      ? `identityConsistent=${input.identityConsistent}`
+      : undefined,
+    input.fullLineageVerified !== undefined && input.fullLineageVerified !== null
+      ? `fullLineageVerified=${input.fullLineageVerified}`
+      : undefined,
+    input.fullHistoryVerified !== undefined && input.fullHistoryVerified !== null
+      ? `fullHistoryVerified=${input.fullHistoryVerified}`
+      : undefined,
   ]
     .filter(Boolean)
     .join("\n");
@@ -938,6 +967,12 @@ function formatBondFinalityPayloadSummary(input: {
   bindingMode: string;
   settlementDescriptorHash?: string | null;
   closingDescriptorHash?: string | null;
+  lineageKind?: string | null;
+  latestOrdinal?: number | null;
+  allHashLinksVerified?: boolean | null;
+  identityConsistent?: boolean | null;
+  fullLineageVerified?: boolean | null;
+  fullHistoryVerified?: boolean | null;
 }): string {
   return [
     `bondId=${input.bondId}`,
@@ -949,6 +984,48 @@ function formatBondFinalityPayloadSummary(input: {
     `contractAddress=${input.contractAddress}`,
     `cmr=${input.cmr}`,
     `bindingMode=${input.bindingMode}`,
+    input.lineageKind ? `lineageKind=${input.lineageKind}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    input.allHashLinksVerified !== undefined && input.allHashLinksVerified !== null
+      ? `allHashLinksVerified=${input.allHashLinksVerified}`
+      : undefined,
+    input.identityConsistent !== undefined && input.identityConsistent !== null
+      ? `identityConsistent=${input.identityConsistent}`
+      : undefined,
+    input.fullLineageVerified !== undefined && input.fullLineageVerified !== null
+      ? `fullLineageVerified=${input.fullLineageVerified}`
+      : undefined,
+    input.fullHistoryVerified !== undefined && input.fullHistoryVerified !== null
+      ? `fullHistoryVerified=${input.fullHistoryVerified}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatBondIssuanceHistorySummary(input: {
+  verified?: boolean;
+  issuanceId: string;
+  chainLength: number;
+  latestStatus?: string | null;
+  latestOrdinal?: number | null;
+  startsAtGenesis: boolean;
+  allHashLinksVerified?: boolean;
+  identityConsistent?: boolean;
+  fullLineageVerified?: boolean;
+  fullHistoryVerified: boolean;
+}): string {
+  return [
+    input.verified !== undefined ? `verified=${input.verified}` : undefined,
+    `issuanceId=${input.issuanceId}`,
+    `chainLength=${input.chainLength}`,
+    input.latestStatus ? `latestStatus=${input.latestStatus}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    `startsAtGenesis=${input.startsAtGenesis}`,
+    input.allHashLinksVerified !== undefined ? `allHashLinksVerified=${input.allHashLinksVerified}` : undefined,
+    input.identityConsistent !== undefined ? `identityConsistent=${input.identityConsistent}` : undefined,
+    input.fullLineageVerified !== undefined ? `fullLineageVerified=${input.fullLineageVerified}` : undefined,
+    `fullHistoryVerified=${input.fullHistoryVerified}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -1130,6 +1207,13 @@ function formatFundClosingSummary(input: {
   closingReason: string;
   positionId: string;
   distributionCount: number;
+  continuityVerified?: boolean;
+  lineageKind?: string | null;
+  latestOrdinal?: number | null;
+  allHashLinksVerified?: boolean | null;
+  identityConsistent?: boolean | null;
+  fullLineageVerified?: boolean | null;
+  fullChainVerified?: boolean;
   reason?: string;
 }): string {
   return [
@@ -1139,7 +1223,48 @@ function formatFundClosingSummary(input: {
     `closingReason=${input.closingReason}`,
     `positionId=${input.positionId}`,
     `distributionCount=${input.distributionCount}`,
+    input.continuityVerified !== undefined ? `continuityVerified=${input.continuityVerified}` : undefined,
+    input.lineageKind ? `lineageKind=${input.lineageKind}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    input.allHashLinksVerified !== undefined && input.allHashLinksVerified !== null
+      ? `allHashLinksVerified=${input.allHashLinksVerified}`
+      : undefined,
+    input.identityConsistent !== undefined && input.identityConsistent !== null
+      ? `identityConsistent=${input.identityConsistent}`
+      : undefined,
+    input.fullLineageVerified !== undefined && input.fullLineageVerified !== null
+      ? `fullLineageVerified=${input.fullLineageVerified}`
+      : undefined,
+    input.fullChainVerified !== undefined ? `fullChainVerified=${input.fullChainVerified}` : undefined,
     input.reason ? `reason=${input.reason}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatFundReceiptChainSummary(input: {
+  verified?: boolean;
+  positionId: string;
+  chainLength: number;
+  latestSequence?: number | null;
+  latestOrdinal?: number | null;
+  startsAtGenesis: boolean;
+  allHashLinksVerified?: boolean;
+  identityConsistent?: boolean;
+  fullLineageVerified?: boolean;
+  fullChainVerified: boolean;
+}): string {
+  return [
+    input.verified !== undefined ? `verified=${input.verified}` : undefined,
+    `positionId=${input.positionId}`,
+    `chainLength=${input.chainLength}`,
+    input.latestSequence !== undefined && input.latestSequence !== null ? `latestSequence=${input.latestSequence}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    `startsAtGenesis=${input.startsAtGenesis}`,
+    input.allHashLinksVerified !== undefined ? `allHashLinksVerified=${input.allHashLinksVerified}` : undefined,
+    input.identityConsistent !== undefined ? `identityConsistent=${input.identityConsistent}` : undefined,
+    input.fullLineageVerified !== undefined ? `fullLineageVerified=${input.fullLineageVerified}` : undefined,
+    `fullChainVerified=${input.fullChainVerified}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -1153,6 +1278,12 @@ function formatFundEvidenceSummary(input: {
   distributionHash?: string | null;
   closingHash?: string | null;
   sourceVerificationMode: string;
+  lineageKind?: string | null;
+  latestOrdinal?: number | null;
+  allHashLinksVerified?: boolean | null;
+  identityConsistent?: boolean | null;
+  fullLineageVerified?: boolean | null;
+  fullChainVerified?: boolean | null;
 }): string {
   return [
     `definitionHash=${input.definitionHash}`,
@@ -1162,6 +1293,20 @@ function formatFundEvidenceSummary(input: {
     input.distributionHash ? `distributionHash=${input.distributionHash}` : undefined,
     input.closingHash ? `closingHash=${input.closingHash}` : undefined,
     `sourceVerificationMode=${input.sourceVerificationMode}`,
+    input.lineageKind ? `lineageKind=${input.lineageKind}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    input.allHashLinksVerified !== undefined && input.allHashLinksVerified !== null
+      ? `allHashLinksVerified=${input.allHashLinksVerified}`
+      : undefined,
+    input.identityConsistent !== undefined && input.identityConsistent !== null
+      ? `identityConsistent=${input.identityConsistent}`
+      : undefined,
+    input.fullLineageVerified !== undefined && input.fullLineageVerified !== null
+      ? `fullLineageVerified=${input.fullLineageVerified}`
+      : undefined,
+    input.fullChainVerified !== undefined && input.fullChainVerified !== null
+      ? `fullChainVerified=${input.fullChainVerified}`
+      : undefined,
   ]
     .filter(Boolean)
     .join("\n");
@@ -1179,6 +1324,12 @@ function formatFundFinalitySummary(input: {
   distributionHash?: string | null;
   closingHash?: string | null;
   bindingMode: string;
+  lineageKind?: string | null;
+  latestOrdinal?: number | null;
+  allHashLinksVerified?: boolean | null;
+  identityConsistent?: boolean | null;
+  fullLineageVerified?: boolean | null;
+  fullChainVerified?: boolean | null;
 }): string {
   return [
     `fundId=${input.fundId}`,
@@ -1192,6 +1343,182 @@ function formatFundFinalitySummary(input: {
     input.distributionHash ? `distributionHash=${input.distributionHash}` : undefined,
     input.closingHash ? `closingHash=${input.closingHash}` : undefined,
     `bindingMode=${input.bindingMode}`,
+    input.lineageKind ? `lineageKind=${input.lineageKind}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    input.allHashLinksVerified !== undefined && input.allHashLinksVerified !== null
+      ? `allHashLinksVerified=${input.allHashLinksVerified}`
+      : undefined,
+    input.identityConsistent !== undefined && input.identityConsistent !== null
+      ? `identityConsistent=${input.identityConsistent}`
+      : undefined,
+    input.fullLineageVerified !== undefined && input.fullLineageVerified !== null
+      ? `fullLineageVerified=${input.fullLineageVerified}`
+      : undefined,
+    input.fullChainVerified !== undefined && input.fullChainVerified !== null
+      ? `fullChainVerified=${input.fullChainVerified}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatReceivableDefinitionSummary(input: {
+  ok?: boolean;
+  receivableId: string;
+  originatorEntityId: string;
+  debtorEntityId: string;
+  currencyAssetId: string;
+  faceValue: number;
+  dueDate: string;
+}): string {
+  return [
+    input.ok !== undefined ? `ok=${input.ok}` : undefined,
+    `receivableId=${input.receivableId}`,
+    `originatorEntityId=${input.originatorEntityId}`,
+    `debtorEntityId=${input.debtorEntityId}`,
+    `currencyAssetId=${input.currencyAssetId}`,
+    `faceValue=${input.faceValue}`,
+    `dueDate=${input.dueDate}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatReceivableTransitionSummary(input: {
+  phase: "prepare-funding" | "verify-funding" | "prepare-repayment" | "verify-repayment" | "prepare-write-off" | "verify-write-off";
+  verified: boolean;
+  transitionType: string;
+  receivableId: string;
+  nextStateId: string;
+  holderEntityId: string;
+  status: string;
+  outstandingAmount: number;
+  repaidAmount: number;
+  stateHash: string;
+}): string {
+  return [
+    `phase=${input.phase}`,
+    `verified=${input.verified}`,
+    `transitionType=${input.transitionType}`,
+    `receivableId=${input.receivableId}`,
+    `nextStateId=${input.nextStateId}`,
+    `holderEntityId=${input.holderEntityId}`,
+    `status=${input.status}`,
+    `outstandingAmount=${input.outstandingAmount}`,
+    `repaidAmount=${input.repaidAmount}`,
+    `stateHash=${input.stateHash}`,
+  ].join("\n");
+}
+
+function formatReceivableClaimSummary(input: {
+  phase:
+    | "prepare-funding-claim"
+    | "inspect-funding-claim"
+    | "execute-funding-claim"
+    | "verify-funding-claim"
+    | "prepare-repayment-claim"
+    | "inspect-repayment-claim"
+    | "execute-repayment-claim"
+    | "verify-repayment-claim";
+  verified: boolean;
+  claimKind: string;
+  receivableId: string;
+  claimId: string;
+  currentStatus: string;
+  payerEntityId: string;
+  payeeEntityId: string;
+  amountSat: number;
+  bindingMode?: string;
+  reasonCode?: string;
+  supportedForm?: string;
+  fullLineageVerified?: boolean;
+}): string {
+  return [
+    `phase=${input.phase}`,
+    `verified=${input.verified}`,
+    `claimKind=${input.claimKind}`,
+    `receivableId=${input.receivableId}`,
+    `claimId=${input.claimId}`,
+    `currentStatus=${input.currentStatus}`,
+    `payerEntityId=${input.payerEntityId}`,
+    `payeeEntityId=${input.payeeEntityId}`,
+    `amountSat=${input.amountSat}`,
+    input.bindingMode ? `bindingMode=${input.bindingMode}` : undefined,
+    input.reasonCode ? `reasonCode=${input.reasonCode}` : undefined,
+    input.supportedForm ? `supportedForm=${input.supportedForm}` : undefined,
+    input.fullLineageVerified !== undefined ? `fullLineageVerified=${input.fullLineageVerified}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatReceivableHistorySummary(input: {
+  verified: boolean;
+  receivableId: string;
+  chainLength: number;
+  latestStatus: string;
+  latestOrdinal: number | null;
+  fullLineageVerified: boolean;
+}): string {
+  return [
+    `verified=${input.verified}`,
+    `receivableId=${input.receivableId}`,
+    `chainLength=${input.chainLength}`,
+    `latestStatus=${input.latestStatus}`,
+    input.latestOrdinal !== null ? `latestOrdinal=${input.latestOrdinal}` : undefined,
+    `fullLineageVerified=${input.fullLineageVerified}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatReceivableClosingSummary(input: {
+  verified: boolean;
+  receivableId: string;
+  latestStatus: string;
+  closingReason: string;
+  closingHash: string;
+  fullLineageVerified?: boolean;
+}): string {
+  return [
+    `verified=${input.verified}`,
+    `receivableId=${input.receivableId}`,
+    `latestStatus=${input.latestStatus}`,
+    `closingReason=${input.closingReason}`,
+    `closingHash=${input.closingHash}`,
+    input.fullLineageVerified !== undefined ? `fullLineageVerified=${input.fullLineageVerified}` : undefined,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function formatReceivableEvidenceOrFinalitySummary(input: {
+  kind: "evidence" | "finality";
+  receivableId: string;
+  holderEntityId: string;
+  definitionHash: string;
+  latestStateHash: string;
+  closingHash?: string | null;
+  closingReason?: string | null;
+  lineageKind?: string | null;
+  latestOrdinal?: number | null;
+  fullLineageVerified?: boolean | null;
+}): string {
+  return [
+    `kind=${input.kind}`,
+    `receivableId=${input.receivableId}`,
+    `holderEntityId=${input.holderEntityId}`,
+    `definitionHash=${input.definitionHash}`,
+    `latestStateHash=${input.latestStateHash}`,
+    input.closingHash ? `closingHash=${input.closingHash}` : undefined,
+    input.closingReason ? `closingReason=${input.closingReason}` : undefined,
+    input.lineageKind ? `lineageKind=${input.lineageKind}` : undefined,
+    input.latestOrdinal !== undefined && input.latestOrdinal !== null
+      ? `latestOrdinal=${input.latestOrdinal}`
+      : undefined,
+    input.fullLineageVerified !== undefined && input.fullLineageVerified !== null
+      ? `fullLineageVerified=${input.fullLineageVerified}`
+      : undefined,
   ]
     .filter(Boolean)
     .join("\n");
@@ -1576,7 +1903,7 @@ async function main(): Promise<void> {
   const sdk = createSimplicityClient(resolveConfig());
 
   if (!command) {
-    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|binding|policy|bond|fund|gasless> ...");
+    throw new Error("Usage: simplicity-cli <compile|presets|preset|contract|artifact|definition|state|binding|policy|bond|fund|receivable|gasless> ...");
   }
 
   if (command === "compile") {
@@ -2246,6 +2573,45 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "bond" && subcommand === "verify-issuance-history") {
+    const issuanceHistoryPaths = getMultiArgs("issuance-history-json");
+    const issuanceHistoryValues = getMultiArgs("issuance-history-value").map((value) => JSON.parse(value));
+    const result = await sdk.bonds.verifyIssuanceHistory({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      issuanceHistoryPaths: issuanceHistoryPaths.length > 0 ? issuanceHistoryPaths : undefined,
+      issuanceHistoryValues: issuanceHistoryValues.length > 0 ? issuanceHistoryValues : undefined,
+    });
+    printJson({
+      summary: {
+        verified: result.verified,
+        issuanceId: result.issuanceHistoryValues.at(-1)?.issuanceId ?? null,
+        chainLength: result.report.issuanceLineageTrust?.chainLength ?? 0,
+        latestStatus: result.report.issuanceLineageTrust?.latestStatus ?? null,
+        latestOrdinal: result.report.issuanceLineageTrust?.latestOrdinal ?? null,
+        startsAtGenesis: result.report.issuanceLineageTrust?.startsAtGenesis ?? false,
+        allHashLinksVerified: result.report.issuanceLineageTrust?.allHashLinksVerified ?? false,
+        identityConsistent: result.report.issuanceLineageTrust?.identityConsistent ?? false,
+        fullLineageVerified: result.report.issuanceLineageTrust?.fullLineageVerified ?? false,
+        fullHistoryVerified: result.report.issuanceLineageTrust?.fullHistoryVerified ?? false,
+      },
+      summaryText: formatBondIssuanceHistorySummary({
+        verified: result.verified,
+        issuanceId: result.issuanceHistoryValues.at(-1)?.issuanceId ?? "unknown",
+        chainLength: result.report.issuanceLineageTrust?.chainLength ?? 0,
+        latestStatus: result.report.issuanceLineageTrust?.latestStatus ?? null,
+        latestOrdinal: result.report.issuanceLineageTrust?.latestOrdinal ?? null,
+        startsAtGenesis: result.report.issuanceLineageTrust?.startsAtGenesis ?? false,
+        allHashLinksVerified: result.report.issuanceLineageTrust?.allHashLinksVerified ?? false,
+        identityConsistent: result.report.issuanceLineageTrust?.identityConsistent ?? false,
+        fullLineageVerified: result.report.issuanceLineageTrust?.fullLineageVerified ?? false,
+        fullHistoryVerified: result.report.issuanceLineageTrust?.fullHistoryVerified ?? false,
+      }),
+      ...result,
+    });
+    return;
+  }
+
   if (command === "bond" && subcommand === "prepare-redemption") {
     const result = await sdk.bonds.prepareRedemption({
       definitionPath: getArg("definition-json"),
@@ -2710,6 +3076,8 @@ async function main(): Promise<void> {
   }
 
   if (command === "bond" && subcommand === "export-evidence") {
+    const issuanceHistoryPaths = getMultiArgs("issuance-history-json");
+    const issuanceHistoryValues = getMultiArgs("issuance-history-value").map((value) => JSON.parse(value));
     const settlementDescriptorValue = getArg("settlement-descriptor-value")
       ? JSON.parse(getArg("settlement-descriptor-value")!)
       : undefined;
@@ -2720,6 +3088,8 @@ async function main(): Promise<void> {
       artifactPath: requireArg("artifact"),
       definitionPath: getArg("definition-json"),
       issuancePath: getArg("issuance-json"),
+      issuanceHistoryPaths: issuanceHistoryPaths.length > 0 ? issuanceHistoryPaths : undefined,
+      issuanceHistoryValues: issuanceHistoryValues.length > 0 ? issuanceHistoryValues : undefined,
       settlementDescriptorValue,
       transitionValue,
     });
@@ -2732,6 +3102,12 @@ async function main(): Promise<void> {
         closingHash: result.closing?.hash ?? null,
         renderedSourceHash: result.renderedSourceHash ?? null,
         sourceVerificationMode: result.sourceVerificationMode,
+        lineageKind: result.trust.issuanceLineageTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.issuanceLineageTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.issuanceLineageTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.issuanceLineageTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.issuanceLineageTrust?.fullLineageVerified ?? null,
+        fullHistoryVerified: result.trust.issuanceLineageTrust?.fullHistoryVerified ?? null,
       },
       summaryText: formatBondEvidenceSummary({
         definitionHash: result.definition.hash,
@@ -2740,12 +3116,20 @@ async function main(): Promise<void> {
         closingHash: result.closing?.hash ?? null,
         renderedSourceHash: result.renderedSourceHash ?? null,
         sourceVerificationMode: result.sourceVerificationMode,
+        lineageKind: result.trust.issuanceLineageTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.issuanceLineageTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.issuanceLineageTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.issuanceLineageTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.issuanceLineageTrust?.fullLineageVerified ?? null,
+        fullHistoryVerified: result.trust.issuanceLineageTrust?.fullHistoryVerified ?? null,
       }),
     });
     return;
   }
 
   if (command === "bond" && subcommand === "export-finality-payload") {
+    const issuanceHistoryPaths = getMultiArgs("issuance-history-json");
+    const issuanceHistoryValues = getMultiArgs("issuance-history-value").map((value) => JSON.parse(value));
     const settlementDescriptorValue = getArg("settlement-descriptor-value")
       ? JSON.parse(getArg("settlement-descriptor-value")!)
       : undefined;
@@ -2756,6 +3140,8 @@ async function main(): Promise<void> {
       artifactPath: requireArg("artifact"),
       definitionPath: getArg("definition-json"),
       issuancePath: getArg("issuance-json"),
+      issuanceHistoryPaths: issuanceHistoryPaths.length > 0 ? issuanceHistoryPaths : undefined,
+      issuanceHistoryValues: issuanceHistoryValues.length > 0 ? issuanceHistoryValues : undefined,
       settlementDescriptorValue,
       closingDescriptorValue,
     });
@@ -2771,6 +3157,12 @@ async function main(): Promise<void> {
         contractAddress: result.payload.contractAddress,
         cmr: result.payload.cmr,
         bindingMode: result.bindingMode,
+        lineageKind: result.trust.issuanceLineageTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.issuanceLineageTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.issuanceLineageTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.issuanceLineageTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.issuanceLineageTrust?.fullLineageVerified ?? null,
+        fullHistoryVerified: result.trust.issuanceLineageTrust?.fullHistoryVerified ?? null,
       },
       summaryText: formatBondFinalityPayloadSummary({
         bondId: result.payload.bondId,
@@ -2782,6 +3174,12 @@ async function main(): Promise<void> {
         contractAddress: result.payload.contractAddress,
         cmr: result.payload.cmr,
         bindingMode: result.bindingMode,
+        lineageKind: result.trust.issuanceLineageTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.issuanceLineageTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.issuanceLineageTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.issuanceLineageTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.issuanceLineageTrust?.fullLineageVerified ?? null,
+        fullHistoryVerified: result.trust.issuanceLineageTrust?.fullHistoryVerified ?? null,
       }),
     });
     return;
@@ -3065,6 +3463,10 @@ async function main(): Promise<void> {
       capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
       refundAddress: requireArg("refund-address"),
       refundedAt: getArg("refunded-at"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
       wallet: requireArg("wallet"),
       signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
       feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
@@ -3077,6 +3479,7 @@ async function main(): Promise<void> {
         amount: result.verified.capitalCallValue.amount,
         assetId: result.verified.capitalCallValue.currencyAssetId,
         summaryHash: result.inspect.summaryHash,
+        outputBinding: result.report.outputBindingTrust ?? null,
       },
       summaryText: formatFundCapitalCallSummary({
         phase: "inspect-refund",
@@ -3085,6 +3488,7 @@ async function main(): Promise<void> {
         amount: result.verified.capitalCallValue.amount,
         assetId: result.verified.capitalCallValue.currencyAssetId,
         summaryHash: result.inspect.summaryHash,
+        outputBinding: result.report.outputBindingTrust,
       }),
       ...result,
     });
@@ -3100,6 +3504,10 @@ async function main(): Promise<void> {
       capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
       refundAddress: requireArg("refund-address"),
       refundedAt: getArg("refunded-at"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
       wallet: requireArg("wallet"),
       signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
       feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
@@ -3114,6 +3522,7 @@ async function main(): Promise<void> {
         assetId: result.verified.capitalCallValue.currencyAssetId,
         txId: result.execution.txId ?? null,
         broadcasted: result.execution.broadcasted,
+        outputBinding: result.report.outputBindingTrust ?? null,
       },
       summaryText: formatFundCapitalCallSummary({
         phase: "execute-refund",
@@ -3123,6 +3532,7 @@ async function main(): Promise<void> {
         assetId: result.verified.capitalCallValue.currencyAssetId,
         txId: result.execution.txId,
         broadcasted: result.execution.broadcasted,
+        outputBinding: result.report.outputBindingTrust,
       }),
       ...result,
     });
@@ -3193,11 +3603,19 @@ async function main(): Promise<void> {
   }
 
   if (command === "fund" && subcommand === "verify-position-receipt") {
+    const positionReceiptChainPaths = getMultiArgs("position-receipt-chain-json");
+    const positionReceiptChainValues = getMultiArgs("position-receipt-chain-value").map((value) => JSON.parse(value));
     const result = await sdk.funds.verifyPositionReceipt({
       definitionPath: getArg("definition-json"),
       definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
       positionReceiptPath: getArg("position-receipt-json"),
       positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      previousPositionReceiptPath: getArg("previous-position-receipt-json"),
+      previousPositionReceiptValue: getArg("previous-position-receipt-value")
+        ? JSON.parse(getArg("previous-position-receipt-value")!)
+        : undefined,
+      positionReceiptChainPaths: positionReceiptChainPaths.length > 0 ? positionReceiptChainPaths : undefined,
+      positionReceiptChainValues: positionReceiptChainValues.length > 0 ? positionReceiptChainValues : undefined,
     });
     printJson({
       summary: {
@@ -3206,6 +3624,14 @@ async function main(): Promise<void> {
         sequence: result.positionReceiptValue.receipt.sequence,
         receiptHash: result.positionReceiptSummary.hash,
         envelopeHash: result.positionReceiptEnvelopeSummary.hash,
+        continuityVerified: result.report.receiptTrust?.continuityVerified ?? null,
+        lineageKind: result.report.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? null,
+        chainLength: result.report.receiptChainTrust?.chainLength ?? null,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? null,
       },
       summaryText: [
         `verified=${result.verified}`,
@@ -3213,7 +3639,54 @@ async function main(): Promise<void> {
         `sequence=${result.positionReceiptValue.receipt.sequence}`,
         `receiptHash=${result.positionReceiptSummary.hash}`,
         `envelopeHash=${result.positionReceiptEnvelopeSummary.hash}`,
+        `continuityVerified=${result.report.receiptTrust?.continuityVerified ?? false}`,
+        `lineageKind=${result.report.receiptChainTrust?.lineageKind ?? "receipt-chain"}`,
+        `latestOrdinal=${result.report.receiptChainTrust?.latestOrdinal ?? result.positionReceiptValue.receipt.sequence}`,
+        `allHashLinksVerified=${result.report.receiptChainTrust?.allHashLinksVerified ?? false}`,
+        `identityConsistent=${result.report.receiptChainTrust?.identityConsistent ?? false}`,
+        `fullLineageVerified=${result.report.receiptChainTrust?.fullLineageVerified ?? false}`,
+        `chainLength=${result.report.receiptChainTrust?.chainLength ?? 0}`,
+        `fullChainVerified=${result.report.receiptChainTrust?.fullChainVerified ?? false}`,
       ].join("\n"),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "fund" && subcommand === "verify-position-receipt-chain") {
+    const positionReceiptChainPaths = getMultiArgs("position-receipt-chain-json");
+    const positionReceiptChainValues = getMultiArgs("position-receipt-chain-value").map((value) => JSON.parse(value));
+    const result = await sdk.funds.verifyPositionReceiptChain({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
+      positionReceiptChainPaths: positionReceiptChainPaths.length > 0 ? positionReceiptChainPaths : undefined,
+      positionReceiptChainValues: positionReceiptChainValues.length > 0 ? positionReceiptChainValues : undefined,
+    });
+    printJson({
+      summary: {
+        verified: result.verified,
+        positionId: result.positionReceiptValue.receipt.positionId,
+        chainLength: result.report.receiptChainTrust?.chainLength ?? 0,
+        latestSequence: result.report.receiptChainTrust?.latestSequence ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        startsAtGenesis: result.report.receiptChainTrust?.startsAtGenesis ?? false,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? false,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? false,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? false,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? false,
+      },
+      summaryText: formatFundReceiptChainSummary({
+        verified: result.verified,
+        positionId: result.positionReceiptValue.receipt.positionId,
+        chainLength: result.report.receiptChainTrust?.chainLength ?? 0,
+        latestSequence: result.report.receiptChainTrust?.latestSequence ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        startsAtGenesis: result.report.receiptChainTrust?.startsAtGenesis ?? false,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? false,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? false,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? false,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? false,
+      }),
       ...result,
     });
     return;
@@ -3379,9 +3852,19 @@ async function main(): Promise<void> {
   }
 
   if (command === "fund" && subcommand === "prepare-closing") {
+    const positionReceiptChainPaths = getMultiArgs("position-receipt-chain-json");
+    const positionReceiptChainValues = getMultiArgs("position-receipt-chain-value").map((value) => JSON.parse(value));
     const result = await sdk.funds.prepareClosing({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
       positionReceiptPath: getArg("position-receipt-json"),
       positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      previousPositionReceiptPath: getArg("previous-position-receipt-json"),
+      previousPositionReceiptValue: getArg("previous-position-receipt-value")
+        ? JSON.parse(getArg("previous-position-receipt-value")!)
+        : undefined,
+      positionReceiptChainPaths: positionReceiptChainPaths.length > 0 ? positionReceiptChainPaths : undefined,
+      positionReceiptChainValues: positionReceiptChainValues.length > 0 ? positionReceiptChainValues : undefined,
       closingPath: getArg("closing-json"),
       closingValue: getArg("closing-value") ? JSON.parse(getArg("closing-value")!) : undefined,
       closingId: getArg("closing-id"),
@@ -3396,6 +3879,13 @@ async function main(): Promise<void> {
         closingReason: result.closingValue.closingReason,
         positionId: result.closingValue.positionId,
         distributionCount: result.closingValue.finalDistributionHashes.length,
+        continuityVerified: result.report.receiptTrust?.continuityVerified ?? null,
+        lineageKind: result.report.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? null,
       },
       summaryText: formatFundClosingSummary({
         closingHash: result.closingHash,
@@ -3403,6 +3893,13 @@ async function main(): Promise<void> {
         closingReason: result.closingValue.closingReason,
         positionId: result.closingValue.positionId,
         distributionCount: result.closingValue.finalDistributionHashes.length,
+        continuityVerified: result.report.receiptTrust?.continuityVerified ?? false,
+        lineageKind: result.report.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? false,
       }),
       ...result,
     });
@@ -3410,9 +3907,19 @@ async function main(): Promise<void> {
   }
 
   if (command === "fund" && subcommand === "verify-closing") {
+    const positionReceiptChainPaths = getMultiArgs("position-receipt-chain-json");
+    const positionReceiptChainValues = getMultiArgs("position-receipt-chain-value").map((value) => JSON.parse(value));
     const result = await sdk.funds.verifyClosing({
+      definitionPath: getArg("definition-json"),
+      definitionValue: getArg("definition-value") ? JSON.parse(getArg("definition-value")!) : undefined,
       positionReceiptPath: getArg("position-receipt-json"),
       positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      previousPositionReceiptPath: getArg("previous-position-receipt-json"),
+      previousPositionReceiptValue: getArg("previous-position-receipt-value")
+        ? JSON.parse(getArg("previous-position-receipt-value")!)
+        : undefined,
+      positionReceiptChainPaths: positionReceiptChainPaths.length > 0 ? positionReceiptChainPaths : undefined,
+      positionReceiptChainValues: positionReceiptChainValues.length > 0 ? positionReceiptChainValues : undefined,
       closingPath: getArg("closing-json"),
       closingValue: getArg("closing-value") ? JSON.parse(getArg("closing-value")!) : undefined,
     });
@@ -3424,6 +3931,13 @@ async function main(): Promise<void> {
         closingReason: result.closingValue.closingReason,
         positionId: result.closingValue.positionId,
         distributionCount: result.closingValue.finalDistributionHashes.length,
+        continuityVerified: result.report.receiptTrust?.continuityVerified ?? null,
+        lineageKind: result.report.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? null,
       },
       summaryText: formatFundClosingSummary({
         ok: result.verified,
@@ -3432,6 +3946,13 @@ async function main(): Promise<void> {
         closingReason: result.closingValue.closingReason,
         positionId: result.closingValue.positionId,
         distributionCount: result.closingValue.finalDistributionHashes.length,
+        continuityVerified: result.report.receiptTrust?.continuityVerified ?? false,
+        lineageKind: result.report.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.report.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.report.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.report.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.report.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.report.receiptChainTrust?.fullChainVerified ?? false,
       }),
       ...result,
     });
@@ -3439,6 +3960,8 @@ async function main(): Promise<void> {
   }
 
   if (command === "fund" && subcommand === "export-evidence") {
+    const positionReceiptChainPaths = getMultiArgs("position-receipt-chain-json");
+    const positionReceiptChainValues = getMultiArgs("position-receipt-chain-value").map((value) => JSON.parse(value));
     const result = await sdk.funds.exportEvidence({
       artifactPath: getArg("artifact"),
       definitionPath: getArg("definition-json"),
@@ -3447,6 +3970,12 @@ async function main(): Promise<void> {
       capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
       positionReceiptPath: getArg("position-receipt-json"),
       positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      previousPositionReceiptPath: getArg("previous-position-receipt-json"),
+      previousPositionReceiptValue: getArg("previous-position-receipt-value")
+        ? JSON.parse(getArg("previous-position-receipt-value")!)
+        : undefined,
+      positionReceiptChainPaths: positionReceiptChainPaths.length > 0 ? positionReceiptChainPaths : undefined,
+      positionReceiptChainValues: positionReceiptChainValues.length > 0 ? positionReceiptChainValues : undefined,
       distributionPath: getArg("distribution-json"),
       distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
       closingPath: getArg("closing-json"),
@@ -3461,14 +3990,27 @@ async function main(): Promise<void> {
         distributionHash: result.distribution?.hash ?? null,
         closingHash: result.closing?.hash ?? null,
         sourceVerificationMode: result.sourceVerificationMode,
+        lineageKind: result.trust.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.trust.receiptChainTrust?.fullChainVerified ?? null,
       },
       summaryText: formatFundEvidenceSummary({
         definitionHash: result.definition.hash,
         capitalCallHash: result.capitalCall?.hash ?? null,
         positionReceiptHash: result.positionReceipt?.hash ?? null,
+        positionReceiptEnvelopeHash: result.positionReceiptEnvelope?.hash ?? null,
         distributionHash: result.distribution?.hash ?? null,
         closingHash: result.closing?.hash ?? null,
         sourceVerificationMode: result.sourceVerificationMode,
+        lineageKind: result.trust.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.trust.receiptChainTrust?.fullChainVerified ?? null,
       }),
       ...result,
     });
@@ -3476,6 +4018,8 @@ async function main(): Promise<void> {
   }
 
   if (command === "fund" && subcommand === "export-finality-payload") {
+    const positionReceiptChainPaths = getMultiArgs("position-receipt-chain-json");
+    const positionReceiptChainValues = getMultiArgs("position-receipt-chain-value").map((value) => JSON.parse(value));
     const result = await sdk.funds.exportFinalityPayload({
       artifactPath: getArg("artifact"),
       definitionPath: getArg("definition-json"),
@@ -3484,6 +4028,12 @@ async function main(): Promise<void> {
       capitalCallValue: getArg("capital-call-value") ? JSON.parse(getArg("capital-call-value")!) : undefined,
       positionReceiptPath: getArg("position-receipt-json"),
       positionReceiptValue: getArg("position-receipt-value") ? JSON.parse(getArg("position-receipt-value")!) : undefined,
+      previousPositionReceiptPath: getArg("previous-position-receipt-json"),
+      previousPositionReceiptValue: getArg("previous-position-receipt-value")
+        ? JSON.parse(getArg("previous-position-receipt-value")!)
+        : undefined,
+      positionReceiptChainPaths: positionReceiptChainPaths.length > 0 ? positionReceiptChainPaths : undefined,
+      positionReceiptChainValues: positionReceiptChainValues.length > 0 ? positionReceiptChainValues : undefined,
       distributionPath: getArg("distribution-json"),
       distributionValue: getArg("distribution-value") ? JSON.parse(getArg("distribution-value")!) : undefined,
       closingPath: getArg("closing-json"),
@@ -3502,6 +4052,12 @@ async function main(): Promise<void> {
         distributionHash: result.distributionHash ?? null,
         closingHash: result.closingHash ?? null,
         bindingMode: result.bindingMode,
+        lineageKind: result.trust.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.trust.receiptChainTrust?.fullChainVerified ?? null,
       },
       summaryText: formatFundFinalitySummary({
         fundId: result.fundId,
@@ -3511,9 +4067,715 @@ async function main(): Promise<void> {
         definitionHash: result.definitionHash,
         capitalCallStateHash: result.capitalCallStateHash,
         positionReceiptHash: result.positionReceiptHash,
+        positionReceiptEnvelopeHash: result.positionReceiptEnvelopeHash,
         distributionHash: result.distributionHash,
         closingHash: result.closingHash,
         bindingMode: result.bindingMode,
+        lineageKind: result.trust.receiptChainTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.receiptChainTrust?.latestOrdinal ?? null,
+        allHashLinksVerified: result.trust.receiptChainTrust?.allHashLinksVerified ?? null,
+        identityConsistent: result.trust.receiptChainTrust?.identityConsistent ?? null,
+        fullLineageVerified: result.trust.receiptChainTrust?.fullLineageVerified ?? null,
+        fullChainVerified: result.trust.receiptChainTrust?.fullChainVerified ?? null,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "define") {
+    const result = await sdk.receivables.define({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+    });
+    printJson({
+      summaryText: formatReceivableDefinitionSummary({
+        ok: result.ok,
+        receivableId: result.definitionValue.receivableId,
+        originatorEntityId: result.definitionValue.originatorEntityId,
+        debtorEntityId: result.definitionValue.debtorEntityId,
+        currencyAssetId: result.definitionValue.currencyAssetId,
+        faceValue: result.definitionValue.faceValue,
+        dueDate: result.definitionValue.dueDate,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify") {
+    const result = await sdk.receivables.verify({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      statePath: getArg("state-json"),
+      stateValue: parseJsonArg("state-value"),
+    });
+    printJson({
+      summaryText: formatReceivableDefinitionSummary({
+        ok: result.verified,
+        receivableId: result.definitionValue.receivableId,
+        originatorEntityId: result.definitionValue.originatorEntityId,
+        debtorEntityId: result.definitionValue.debtorEntityId,
+        currencyAssetId: result.definitionValue.currencyAssetId,
+        faceValue: result.definitionValue.faceValue,
+        dueDate: result.definitionValue.dueDate,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "load") {
+    const result = await sdk.receivables.load({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      statePath: getArg("state-json"),
+      stateValue: parseJsonArg("state-value"),
+    });
+    printJson({
+      summaryText: formatReceivableDefinitionSummary({
+        receivableId: result.definitionValue.receivableId,
+        originatorEntityId: result.definitionValue.originatorEntityId,
+        debtorEntityId: result.definitionValue.debtorEntityId,
+        currencyAssetId: result.definitionValue.currencyAssetId,
+        faceValue: result.definitionValue.faceValue,
+        dueDate: result.definitionValue.dueDate,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "prepare-funding") {
+    const result = await sdk.receivables.prepareFunding({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      previousStatePath: getArg("previous-state-json"),
+      previousStateValue: parseJsonArg("previous-state-value"),
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: parseJsonArg("next-state-value"),
+      stateId: getArg("state-id"),
+      holderEntityId: getArg("holder-entity-id"),
+      fundedAt: getArg("funded-at"),
+    });
+    printJson({
+      summaryText: formatReceivableTransitionSummary({
+        phase: "prepare-funding",
+        verified: result.verified,
+        transitionType: result.report.transitionTrust?.transitionType ?? "FUND",
+        receivableId: result.nextStateValue.receivableId,
+        nextStateId: result.nextStateValue.stateId,
+        holderEntityId: result.nextStateValue.holderEntityId,
+        status: result.nextStateValue.status,
+        outstandingAmount: result.nextStateValue.outstandingAmount,
+        repaidAmount: result.nextStateValue.repaidAmount,
+        stateHash: result.nextStateSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-funding") {
+    const result = await sdk.receivables.verifyFunding({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      previousStatePath: getArg("previous-state-json"),
+      previousStateValue: parseJsonArg("previous-state-value"),
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: parseJsonArg("next-state-value"),
+    });
+    printJson({
+      summaryText: formatReceivableTransitionSummary({
+        phase: "verify-funding",
+        verified: result.verified,
+        transitionType: result.report.transitionTrust?.transitionType ?? "FUND",
+        receivableId: result.nextStateValue.receivableId,
+        nextStateId: result.nextStateValue.stateId,
+        holderEntityId: result.nextStateValue.holderEntityId,
+        status: result.nextStateValue.status,
+        outstandingAmount: result.nextStateValue.outstandingAmount,
+        repaidAmount: result.nextStateValue.repaidAmount,
+        stateHash: result.nextStateSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "prepare-funding-claim") {
+    const result = await sdk.receivables.prepareFundingClaim({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      fundingClaimPath: getArg("funding-claim-json"),
+      fundingClaimValue: parseJsonArg("funding-claim-value"),
+      claimId: getArg("claim-id"),
+      payerEntityId: getArg("payer-entity-id"),
+      payeeEntityId: getArg("payee-entity-id"),
+      claimantXonly: getArg("claimant-xonly"),
+      amountSat: getArg("amount-sat") ? Number(getArg("amount-sat")) : undefined,
+      eventTimestamp: getArg("event-timestamp"),
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "prepare-funding-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.fundingClaimTrust?.bindingMode,
+        reasonCode: result.report.fundingClaimTrust?.reasonCode,
+        supportedForm: result.report.fundingClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-funding-claim") {
+    const result = await sdk.receivables.verifyFundingClaim({
+      artifactPath: getArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      fundingClaimPath: getArg("funding-claim-json"),
+      fundingClaimValue: parseJsonArg("funding-claim-value"),
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "verify-funding-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.fundingClaimTrust?.bindingMode,
+        reasonCode: result.report.fundingClaimTrust?.reasonCode,
+        supportedForm: result.report.fundingClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "inspect-funding-claim") {
+    const result = await sdk.receivables.inspectFundingClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      fundingClaimPath: getArg("funding-claim-json"),
+      fundingClaimValue: parseJsonArg("funding-claim-value"),
+      payoutAddress: requireArg("payout-address"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "inspect-funding-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.fundingClaimTrust?.bindingMode,
+        reasonCode: result.report.fundingClaimTrust?.reasonCode,
+        supportedForm: result.report.fundingClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "execute-funding-claim") {
+    const result = await sdk.receivables.executeFundingClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      fundingClaimPath: getArg("funding-claim-json"),
+      fundingClaimValue: parseJsonArg("funding-claim-value"),
+      payoutAddress: requireArg("payout-address"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "execute-funding-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.fundingClaimTrust?.bindingMode,
+        reasonCode: result.report.fundingClaimTrust?.reasonCode,
+        supportedForm: result.report.fundingClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "prepare-repayment") {
+    const result = await sdk.receivables.prepareRepayment({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      previousStatePath: getArg("previous-state-json"),
+      previousStateValue: parseJsonArg("previous-state-value"),
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: parseJsonArg("next-state-value"),
+      stateId: getArg("state-id"),
+      amount: getArg("amount") ? Number(getArg("amount")) : undefined,
+      repaidAt: getArg("repaid-at"),
+    });
+    printJson({
+      summaryText: formatReceivableTransitionSummary({
+        phase: "prepare-repayment",
+        verified: result.verified,
+        transitionType: result.report.transitionTrust?.transitionType ?? "REPAY",
+        receivableId: result.nextStateValue.receivableId,
+        nextStateId: result.nextStateValue.stateId,
+        holderEntityId: result.nextStateValue.holderEntityId,
+        status: result.nextStateValue.status,
+        outstandingAmount: result.nextStateValue.outstandingAmount,
+        repaidAmount: result.nextStateValue.repaidAmount,
+        stateHash: result.nextStateSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "prepare-repayment-claim") {
+    const result = await sdk.receivables.prepareRepaymentClaim({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      repaymentClaimPath: getArg("repayment-claim-json"),
+      repaymentClaimValue: parseJsonArg("repayment-claim-value"),
+      claimId: getArg("claim-id"),
+      payerEntityId: getArg("payer-entity-id"),
+      payeeEntityId: getArg("payee-entity-id"),
+      claimantXonly: getArg("claimant-xonly"),
+      amountSat: getArg("amount-sat") ? Number(getArg("amount-sat")) : undefined,
+      eventTimestamp: getArg("event-timestamp"),
+      simfPath: getArg("simf"),
+      artifactPath: getArg("artifact"),
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "prepare-repayment-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.repaymentClaimTrust?.bindingMode,
+        reasonCode: result.report.repaymentClaimTrust?.reasonCode,
+        supportedForm: result.report.repaymentClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-repayment-claim") {
+    const result = await sdk.receivables.verifyRepaymentClaim({
+      artifactPath: getArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      repaymentClaimPath: getArg("repayment-claim-json"),
+      repaymentClaimValue: parseJsonArg("repayment-claim-value"),
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "verify-repayment-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.repaymentClaimTrust?.bindingMode,
+        reasonCode: result.report.repaymentClaimTrust?.reasonCode,
+        supportedForm: result.report.repaymentClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "inspect-repayment-claim") {
+    const result = await sdk.receivables.inspectRepaymentClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      repaymentClaimPath: getArg("repayment-claim-json"),
+      repaymentClaimValue: parseJsonArg("repayment-claim-value"),
+      payoutAddress: requireArg("payout-address"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "inspect-repayment-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.repaymentClaimTrust?.bindingMode,
+        reasonCode: result.report.repaymentClaimTrust?.reasonCode,
+        supportedForm: result.report.repaymentClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "execute-repayment-claim") {
+    const result = await sdk.receivables.executeRepaymentClaim({
+      artifactPath: requireArg("artifact"),
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      currentStatePath: getArg("current-state-json"),
+      currentStateValue: parseJsonArg("current-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      repaymentClaimPath: getArg("repayment-claim-json"),
+      repaymentClaimValue: parseJsonArg("repayment-claim-value"),
+      payoutAddress: requireArg("payout-address"),
+      nextOutputHash: getArg("next-output-hash") || undefined,
+      outputForm: parsePolicyOutputForm() as any,
+      rawOutput: parseRawOutputFields() as any,
+      outputBindingMode: getArg("output-binding-mode") as "none" | "script-bound" | "descriptor-bound" | undefined,
+      wallet: requireArg("wallet"),
+      signer: { type: "schnorrPrivkeyHex", privkeyHex: requireArg("privkey") },
+      feeSat: getArg("fee-sat") ? Number(getArg("fee-sat")) : undefined,
+      utxoPolicy: getArg("utxo-policy") as "smallest_over" | "largest" | "newest" | undefined,
+      broadcast: hasFlag("broadcast"),
+    });
+    printJson({
+      summaryText: formatReceivableClaimSummary({
+        phase: "execute-repayment-claim",
+        verified: result.verified,
+        claimKind: result.claimValue.claimKind,
+        receivableId: result.claimValue.receivableId,
+        claimId: result.claimValue.claimId,
+        currentStatus: result.claimValue.currentStatus,
+        payerEntityId: result.claimValue.payerEntityId,
+        payeeEntityId: result.claimValue.payeeEntityId,
+        amountSat: result.claimValue.amountSat,
+        bindingMode: result.report.repaymentClaimTrust?.bindingMode,
+        reasonCode: result.report.repaymentClaimTrust?.reasonCode,
+        supportedForm: result.report.repaymentClaimTrust?.supportedForm,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-repayment") {
+    const result = await sdk.receivables.verifyRepayment({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      previousStatePath: getArg("previous-state-json"),
+      previousStateValue: parseJsonArg("previous-state-value"),
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: parseJsonArg("next-state-value"),
+    });
+    printJson({
+      summaryText: formatReceivableTransitionSummary({
+        phase: "verify-repayment",
+        verified: result.verified,
+        transitionType: result.report.transitionTrust?.transitionType ?? "REPAY",
+        receivableId: result.nextStateValue.receivableId,
+        nextStateId: result.nextStateValue.stateId,
+        holderEntityId: result.nextStateValue.holderEntityId,
+        status: result.nextStateValue.status,
+        outstandingAmount: result.nextStateValue.outstandingAmount,
+        repaidAmount: result.nextStateValue.repaidAmount,
+        stateHash: result.nextStateSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "prepare-write-off") {
+    const result = await sdk.receivables.prepareWriteOff({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      previousStatePath: getArg("previous-state-json"),
+      previousStateValue: parseJsonArg("previous-state-value"),
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: parseJsonArg("next-state-value"),
+      stateId: getArg("state-id"),
+      defaultedAt: getArg("defaulted-at"),
+      writeOffAmount: getArg("write-off-amount") ? Number(getArg("write-off-amount")) : undefined,
+    });
+    printJson({
+      summaryText: formatReceivableTransitionSummary({
+        phase: "prepare-write-off",
+        verified: result.verified,
+        transitionType: result.report.transitionTrust?.transitionType ?? "WRITE_OFF",
+        receivableId: result.nextStateValue.receivableId,
+        nextStateId: result.nextStateValue.stateId,
+        holderEntityId: result.nextStateValue.holderEntityId,
+        status: result.nextStateValue.status,
+        outstandingAmount: result.nextStateValue.outstandingAmount,
+        repaidAmount: result.nextStateValue.repaidAmount,
+        stateHash: result.nextStateSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-write-off") {
+    const result = await sdk.receivables.verifyWriteOff({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      previousStatePath: getArg("previous-state-json"),
+      previousStateValue: parseJsonArg("previous-state-value"),
+      nextStatePath: getArg("next-state-json"),
+      nextStateValue: parseJsonArg("next-state-value"),
+    });
+    printJson({
+      summaryText: formatReceivableTransitionSummary({
+        phase: "verify-write-off",
+        verified: result.verified,
+        transitionType: result.report.transitionTrust?.transitionType ?? "WRITE_OFF",
+        receivableId: result.nextStateValue.receivableId,
+        nextStateId: result.nextStateValue.stateId,
+        holderEntityId: result.nextStateValue.holderEntityId,
+        status: result.nextStateValue.status,
+        outstandingAmount: result.nextStateValue.outstandingAmount,
+        repaidAmount: result.nextStateValue.repaidAmount,
+        stateHash: result.nextStateSummary.hash,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "prepare-closing") {
+    const result = await sdk.receivables.prepareClosing({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      latestStatePath: getArg("latest-state-json"),
+      latestStateValue: parseJsonArg("latest-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      closingPath: getArg("closing-json"),
+      closingValue: parseJsonArg("closing-value"),
+      closingId: getArg("closing-id"),
+      closedAt: getArg("closed-at"),
+      closingReason: getArg("closing-reason") as "REPAID" | "DEFAULTED" | "CANCELLED" | undefined,
+    });
+    printJson({
+      summaryText: formatReceivableClosingSummary({
+        verified: result.verified,
+        receivableId: result.closingValue.receivableId,
+        latestStatus: result.closingValue.latestStatus,
+        closingReason: result.closingValue.closingReason,
+        closingHash: result.closingSummary.hash,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-closing") {
+    const result = await sdk.receivables.verifyClosing({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      latestStatePath: getArg("latest-state-json"),
+      latestStateValue: parseJsonArg("latest-state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      closingPath: getArg("closing-json"),
+      closingValue: parseJsonArg("closing-value"),
+    });
+    printJson({
+      summaryText: formatReceivableClosingSummary({
+        verified: result.verified,
+        receivableId: result.closingValue.receivableId,
+        latestStatus: result.closingValue.latestStatus,
+        closingReason: result.closingValue.closingReason,
+        closingHash: result.closingSummary.hash,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "verify-state-history") {
+    const result = await sdk.receivables.verifyStateHistory({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+    });
+    printJson({
+      summaryText: formatReceivableHistorySummary({
+        verified: result.verified,
+        receivableId: result.latestStateValue.receivableId,
+        chainLength: result.report.stateLineageTrust?.chainLength ?? 0,
+        latestStatus: result.report.stateLineageTrust?.latestStatus ?? result.latestStateValue.status,
+        latestOrdinal: result.report.stateLineageTrust?.latestOrdinal ?? null,
+        fullLineageVerified: result.report.stateLineageTrust?.fullLineageVerified ?? false,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "export-evidence") {
+    const result = await sdk.receivables.exportEvidence({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      statePath: getArg("state-json"),
+      stateValue: parseJsonArg("state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      fundingClaimPath: getArg("funding-claim-json"),
+      fundingClaimValue: parseJsonArg("funding-claim-value"),
+      repaymentClaimPath: getArg("repayment-claim-json"),
+      repaymentClaimValue: parseJsonArg("repayment-claim-value"),
+      closingPath: getArg("closing-json"),
+      closingValue: parseJsonArg("closing-value"),
+      verificationReportValue: parseJsonArg("verification-report-value"),
+    });
+    const evidenceStateValue = JSON.parse(result.state.canonicalJson) as {
+      receivableId: string;
+      holderEntityId: string;
+    };
+    const evidenceClosingValue = result.closing
+      ? (JSON.parse(result.closing.canonicalJson) as { closingReason: string })
+      : undefined;
+    printJson({
+      summaryText: formatReceivableEvidenceOrFinalitySummary({
+        kind: "evidence",
+        receivableId: evidenceStateValue.receivableId,
+        holderEntityId: evidenceStateValue.holderEntityId,
+        definitionHash: result.definition.hash,
+        latestStateHash: result.state.hash,
+        closingHash: result.closing?.hash ?? null,
+        closingReason: evidenceClosingValue?.closingReason ?? null,
+        lineageKind: result.trust.stateLineageTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.stateLineageTrust?.latestOrdinal ?? null,
+        fullLineageVerified: result.trust.stateLineageTrust?.fullLineageVerified ?? null,
+      }),
+      ...result,
+    });
+    return;
+  }
+
+  if (command === "receivable" && subcommand === "export-finality-payload") {
+    const result = await sdk.receivables.exportFinalityPayload({
+      definitionPath: getArg("definition-json"),
+      definitionValue: parseJsonArg("definition-value"),
+      statePath: getArg("state-json"),
+      stateValue: parseJsonArg("state-value"),
+      stateHistoryPaths: getMultiArgs("state-history-json"),
+      stateHistoryValues: parseJsonArgs("state-history-value"),
+      fundingClaimPath: getArg("funding-claim-json"),
+      fundingClaimValue: parseJsonArg("funding-claim-value"),
+      repaymentClaimPath: getArg("repayment-claim-json"),
+      repaymentClaimValue: parseJsonArg("repayment-claim-value"),
+      closingPath: getArg("closing-json"),
+      closingValue: parseJsonArg("closing-value"),
+      verificationReportValue: parseJsonArg("verification-report-value"),
+    });
+    printJson({
+      summaryText: formatReceivableEvidenceOrFinalitySummary({
+        kind: "finality",
+        receivableId: result.receivableId,
+        holderEntityId: result.holderEntityId,
+        definitionHash: result.definitionHash,
+        latestStateHash: result.latestStateHash,
+        closingHash: result.closingHash,
+        closingReason: result.closingReason,
+        lineageKind: result.trust.stateLineageTrust?.lineageKind ?? null,
+        latestOrdinal: result.trust.stateLineageTrust?.latestOrdinal ?? null,
+        fullLineageVerified: result.trust.stateLineageTrust?.fullLineageVerified ?? null,
       }),
       ...result,
     });

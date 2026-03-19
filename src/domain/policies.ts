@@ -41,6 +41,7 @@ import {
   resolveExplicitAssetHex,
   resolveOutputBindingDecision,
 } from "../core/outputBinding";
+import { buildVerificationTrustSummary } from "../core/reporting";
 
 function resolvePolicyDocsAsset(filename: string): string {
   const cwdCandidate = path.resolve(process.cwd(), "docs/definitions", filename);
@@ -1036,6 +1037,19 @@ export async function verifyState(
     propagationMode: state.propagationMode,
   }).hash;
   const policyHashMatches = expectedPolicyHash === state.policyHash;
+  const report = {
+    schemaVersion: POLICY_VERIFICATION_REPORT_SCHEMA_VERSION,
+    templateTrust: definitionVerification.trust,
+    stateTrust: stateVerification.trust,
+    propagationMode: state.propagationMode,
+    nextPolicyRequired: state.propagationMode === "required",
+    nextPolicyPresent: false,
+    plainExitAllowed: state.propagationMode !== "required",
+    enforcement: resolvePolicyEnforcementMode({
+      currentPropagationMode: state.propagationMode,
+      nextReceiverMode: state.propagationMode === "required" ? "policy" : undefined,
+    }),
+  } satisfies PolicyVerificationReport;
   return {
     ok: definitionVerification.ok && stateVerification.ok && policyHashMatches,
     reason: policyHashMatches ? undefined : "Policy hash does not match template + params + recipient",
@@ -1044,19 +1058,12 @@ export async function verifyState(
     state: stateVerification,
     stateValue: state,
     policyHashMatches,
-    report: {
-      schemaVersion: POLICY_VERIFICATION_REPORT_SCHEMA_VERSION,
-      templateTrust: definitionVerification.trust,
+    report,
+    trustSummary: buildVerificationTrustSummary({
+      definitionTrust: definitionVerification.trust,
       stateTrust: stateVerification.trust,
-      propagationMode: state.propagationMode,
-      nextPolicyRequired: state.propagationMode === "required",
-      nextPolicyPresent: false,
-      plainExitAllowed: state.propagationMode !== "required",
-      enforcement: resolvePolicyEnforcementMode({
-        currentPropagationMode: state.propagationMode,
-        nextReceiverMode: state.propagationMode === "required" ? "policy" : undefined,
-      }),
-    } satisfies PolicyVerificationReport,
+      bindingMode: "none",
+    }),
   };
 }
 
@@ -1811,6 +1818,24 @@ export async function verifyTransfer(
     && (!nextState || transfer.nextPolicyHash === nextState.policyHash)
     && (!nextStateSummary || transfer.nextStateHash === nextStateSummary.hash)
   );
+  const verificationReport = {
+    ...prepared.report,
+    nextPolicyPresent: Boolean(nextState),
+    plainExitAllowed: currentState.propagationMode !== "required",
+    outputBinding: buildPolicyOutputBindingReport({
+      descriptor: transfer?.outputDescriptor,
+      sdkVerified: ok,
+      supportedForm: outputBindingContext.supportedForm,
+      reasonCode: outputBindingContext.reasonCode,
+      autoDerived: outputBindingContext.autoDerived,
+      fallbackReason: outputBindingContext.fallbackReason,
+      bindingInputs: outputBindingContext.bindingInputs,
+    }),
+    enforcement: resolvePolicyEnforcementMode({
+      currentPropagationMode: currentState.propagationMode,
+      nextReceiverMode: nextState ? "policy" : "plain",
+    }),
+  } satisfies PolicyVerificationReport;
   return {
     ok,
     reason: ok ? undefined : "Policy transfer descriptor does not match current/next policy state",
@@ -1818,24 +1843,12 @@ export async function verifyTransfer(
     transfer,
     transferSummary: summary,
     nextState,
-    verificationReport: {
-      ...prepared.report,
-      nextPolicyPresent: Boolean(nextState),
-      plainExitAllowed: currentState.propagationMode !== "required",
-      outputBinding: buildPolicyOutputBindingReport({
-        descriptor: transfer?.outputDescriptor,
-        sdkVerified: ok,
-        supportedForm: outputBindingContext.supportedForm,
-        reasonCode: outputBindingContext.reasonCode,
-        autoDerived: outputBindingContext.autoDerived,
-        fallbackReason: outputBindingContext.fallbackReason,
-        bindingInputs: outputBindingContext.bindingInputs,
-      }),
-      enforcement: resolvePolicyEnforcementMode({
-        currentPropagationMode: currentState.propagationMode,
-        nextReceiverMode: nextState ? "policy" : "plain",
-      }),
-    } satisfies PolicyVerificationReport,
+    verificationReport,
+    trustSummary: buildVerificationTrustSummary({
+      definitionTrust: verificationReport.templateTrust,
+      stateTrust: verificationReport.stateTrust,
+      bindingMode: verificationReport.outputBinding?.mode ?? "none",
+    }),
   };
 }
 
@@ -2006,6 +2019,13 @@ export async function exportEvidence(
     state: stateSummary,
     ...(input.transferDescriptorValue ? { transfer: summarizePolicyTransferDescriptor(input.transferDescriptorValue) } : {}),
     report: transferVerification?.verificationReport ?? verified.report,
+    trustSummary: transferVerification?.trustSummary
+      ?? verified.trustSummary
+      ?? buildVerificationTrustSummary({
+        definitionTrust: verified.report.templateTrust,
+        stateTrust: verified.report.stateTrust,
+        bindingMode: "none",
+      }),
     renderedSourceHash,
     sourceVerificationMode: renderedSourceHash ? "source-reloaded" : "artifact-only",
     compiled: {

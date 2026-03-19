@@ -6,6 +6,9 @@ This note tracks the reproducible runtime validation story for the public Bond b
 
 Current target:
 - public `sdk.bonds.executeRedemption(...)`
+- `sdk.bonds.verifyIssuanceHistory(...)`
+- `sdk.bonds.exportEvidence(...)`
+- `sdk.bonds.exportFinalityPayload(...)`
 - `required`-style settlement path through the Bond business layer
 - `script-bound`
 - `descriptor-bound`
@@ -31,6 +34,15 @@ The testnet script is resumable. It keeps a runtime state file per binding mode 
 - waiting-for-confirmations
 - executed
 
+It also persists a canonical issuance-history sidecar per binding mode under `/tmp` so the final runtime report can surface the shared lineage trust fields:
+
+- `issuanceLineageTrust.lineageKind`
+- `issuanceLineageTrust.latestOrdinal`
+- `issuanceLineageTrust.allHashLinksVerified`
+- `issuanceLineageTrust.identityConsistent`
+- `issuanceLineageTrust.fullLineageVerified`
+- `issuanceLineageTrust.fullHistoryVerified`
+
 ## Required Environment
 
 The testnet runtime script expects:
@@ -53,6 +65,12 @@ Optional:
 - `BOND_FEE_SAT`
 - `BOND_FUNDING_SAT`
 - `BOND_REDEEMED_AT`
+- `BOND_RUNTIME_STATE_PATH`
+- `BOND_ARTIFACT_PATH`
+- `BOND_DEFINITION_PATH`
+- `BOND_ISSUANCE_PATH`
+- `BOND_NEXT_ISSUANCE_PATH`
+- `BOND_ISSUANCE_HISTORY_PATH`
 - `BOND_SIGNER_PRIVKEY`
 - `BOND_WAIT_TIMEOUT_MS`
 - `BOND_WAIT_POLL_MS`
@@ -77,6 +95,12 @@ The script emits structured phase logs to stderr:
 - `waiting-contract-utxo`
 - `executed`
 
+The final result also includes:
+- `issuanceHistory`
+- `issuanceLineageTrust`
+- `evidence`
+- `finality`
+
 ## Latest Status
 
 Latest fresh `script-bound` rerun:
@@ -86,11 +110,16 @@ Latest fresh `script-bound` rerun:
 - lock distance / maturity offset:
   - `BOND_MATURITY_OFFSET=0`
 - funding txid:
-  - `1c982864ef6c83da4eb7f8018edc4cbdff439db7c6366984b3f85ad4937e2c4f`
+  - `90f521bf3c457e0f919bc6876a9f4185fb4e095cda03130cdda640639fc9bcb2`
 - execution txid:
-  - `d659c4bdce6b32650ff58ac37ccaa55209a9f04d5dc4595f956fad034089f580`
+  - `2fd8b5ca82a8cb451d5305d3ec104f0f1864754db27c429d040ab054883eeac2`
 - settlement binding:
   - `script-bound`
+- issuance history:
+  - chain length `2`
+  - latest status `PARTIALLY_REDEEMED`
+  - `fullLineageVerified = true`
+  - `fullHistoryVerified = true`
 - observed phases:
   - `defined`
   - `prepared`
@@ -106,13 +135,18 @@ Latest fresh `descriptor-bound` rerun:
 - lock distance / maturity offset:
   - `BOND_MATURITY_OFFSET=0`
 - funding txid:
-  - `72d0015b51a74c3cc81f7abb74a4f6f894c7f7bbd1e83647939459d7b40e504f`
+  - `7e5bb2fedd562e977388b007d0901cf0334e802402bc6f2a85080571a84b348d`
 - execution txid:
-  - `85e0830a7b2ba33ca37d5f11bd981938418fc472e98657095680ada71387974c`
+  - `b3c2819edb4e55cbc311fb85e033b9528ae7fcb8de196301059ef98120eb8170`
 - settlement binding:
   - `descriptor-bound`
 - reason code:
   - `OK_EXPLICIT`
+- issuance history:
+  - chain length `2`
+  - latest status `PARTIALLY_REDEEMED`
+  - `fullLineageVerified = true`
+  - `fullHistoryVerified = true`
 - observed phases:
   - `defined`
   - `prepared`
@@ -120,6 +154,37 @@ Latest fresh `descriptor-bound` rerun:
   - `waiting-funding-confirmations`
   - `waiting-contract-utxo`
   - `executed`
+
+Latest fresh close-out reruns (`BOND_REDEEM_AMOUNT=1000000`):
+
+- `script-bound`
+  - command:
+    - `BOND_OUTPUT_BINDING_MODE=script-bound BOND_REDEEM_AMOUNT=1000000 npm run e2e:bond-testnet`
+  - funding txid:
+    - `5486ae5e47540f9d882cb5e080f40679051f913a69cf4414cb187effcca3820c`
+  - execution txid:
+    - `6db4b307ec5fb9e770cb6b506e281bde6415ed890f86bc08f67cce74b8211298`
+  - closing hash:
+    - `68ede25e5ea442eb182321c149002b4930f9ffca384e5e7e113f82346edcb5ae`
+  - issuance history:
+    - chain length `3`
+    - latest status `CLOSED`
+    - `fullLineageVerified = true`
+    - `fullHistoryVerified = true`
+- `descriptor-bound`
+  - command:
+    - `BOND_OUTPUT_BINDING_MODE=descriptor-bound BOND_REDEEM_AMOUNT=1000000 npm run e2e:bond-testnet`
+  - funding txid:
+    - `882e9c71b8c20c8a13a39b848d765a30965a8c2d43e9a5ea2883ef85b35a9869`
+  - execution txid:
+    - `d69a0c05eec79af34878bb07a7dcc42f445d6d8522c9452ba5673ea97d1a818b`
+  - closing hash:
+    - `b1a0605ad3a0063a837d00b39c6d1f9d7a62b588c5548f52ab38a6f67c1f5aab`
+  - issuance history:
+    - chain length `3`
+    - latest status `CLOSED`
+    - `fullLineageVerified = true`
+    - `fullHistoryVerified = true`
 
 ## Caveats
 
@@ -135,3 +200,5 @@ Latest fresh `descriptor-bound` rerun:
 - Runtime validation here still targets the business flow itself (`script-bound` / `descriptor-bound`), not wallet-driven confidential output reconstruction.
 - The current runtime script no longer depends on `findUtxos()` for contract discovery; it uses direct RPC scans so it can resume cleanly up to the spendable-contract-UTXO stage.
 - The public Bond redemption runtime path now uses the RPC-backed shared executor, so Docker-backed `elements-cli` wrappers are no longer a blocker for the normal business-flow execute step.
+- `sdk.bonds.verifyIssuanceHistory(...)` is the stronger lineage check when the operator can provide the canonical issuance-state history from the original `ISSUED` state through the latest runtime state.
+- When you provide that canonical history, bond evidence/finality now surfaces the same lineage vocabulary as funds: `lineageKind`, `latestOrdinal`, `allHashLinksVerified`, `identityConsistent`, and `fullLineageVerified`.

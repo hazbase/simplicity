@@ -5,6 +5,8 @@ This note captures the current practical runtime story for the public recursive 
 Reproducible commands:
 
 - `npm run e2e:policy-local`
+- `npm run e2e:policy-restricted-otc-local`
+- `npm run e2e:policy-restricted-otc-testnet`
 - `POLICY_OUTPUT_BINDING_MODE=script-bound npm run e2e:policy-testnet`
 - `POLICY_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:policy-testnet`
 - `npm run e2e:policy-consumer`
@@ -32,6 +34,8 @@ Those runtime state files capture:
 - `phase`
 
 If a rerun sees an existing runtime state file, it reuses the issued artifact/state, waits from the current phase, and returns the saved success payload once the execution phase is already complete.
+
+The dedicated restricted OTC testnet runner uses a separate scenario namespace via `POLICY_SCENARIO=restricted-otc`, so its runtime files are distinct from the generic policy runner and can be resumed independently.
 
 ## Public model
 
@@ -63,6 +67,8 @@ Legacy routed helpers and the router machine remain available only for internal 
   - current policy state -> next constrained policy output
 - `optional` mode plain exit
 - `optional` mode 1tx recursive branch
+- restricted OTC-style transfer preview via `npm run e2e:policy-restricted-otc-local`
+- dedicated restricted OTC testnet scenario entrypoint via `npm run e2e:policy-restricted-otc-testnet`
 - `required` mode 1tx `descriptor-bound` direct hop with auto-derived `nextOutputHash` on testnet:
   - rerun command:
     - `POLICY_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:policy-testnet`
@@ -129,6 +135,42 @@ At the moment, simply waiting on the existing local docker setup does not advanc
 Known testnet caveat:
 
 - confirmation speed varies, so the resumable state file is the supported way to survive long waits between `funded` and `executed`
+- the dedicated OTC scenario also requires:
+  - `ELEMENTS_RPC_URL`
+  - `ELEMENTS_RPC_USER`
+  - `ELEMENTS_RPC_PASSWORD`
+
+## Restricted OTC scenario
+
+The restricted OTC scenario intentionally stays inside `sdk.policies` rather than introducing a separate OTC business domain.
+
+Scenario defaults:
+
+- `propagationMode = required`
+- enforcement label: `direct-hop`
+- seller custodian -> approved buyer custodian only
+- happy path:
+  - `descriptor-bound`
+  - `raw-output-v1`
+- control path:
+  - `script-bound`
+
+Expected runtime summary fields:
+
+- `scenario=restricted-otc`
+- `enforcement=direct-hop`
+- `approvedBuyerCustodianXonly`
+- `bindingMode`
+- `reasonCode`
+
+Current environment status:
+
+- `npm run e2e:policy-restricted-otc-local`
+  - latest known result:
+    - clean skip when `simc/hal-simplicity` are unavailable
+- `npm run e2e:policy-restricted-otc-testnet`
+  - dedicated entrypoint is now implemented
+  - fresh txids have not been recorded in this environment yet because the required Elements RPC env vars were not set at run time
 
 Once that exists, the same policy flow can be replayed with:
 

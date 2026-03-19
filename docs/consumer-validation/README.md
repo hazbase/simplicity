@@ -2,6 +2,8 @@
 
 This directory captures a real external-consumer validation of `@hazbase/simplicity`.
 
+For a case-study comparison of where the SDK is already a strong fit versus still runtime-thin, see [../case-studies/README.md](../case-studies/README.md).
+
 The goal is to prove that the published npm package works from a blank Node.js project without importing this repo's source code directly.
 
 ## What Was Validated
@@ -23,6 +25,7 @@ Validated scenarios:
 | Custom `.simf` flow | Success | `compileFromFile(...)` -> fund -> inspect -> execute(`broadcast=true`) |
 | Relayer-backed gasless flow | Success | `executeGasless(...)` from the external project |
 | LP fund business flow | Success | `sdk.funds` open capital call / signed receipt envelope / two distributions / closing / finality smoke |
+| Receivable business flow | Success | `sdk.receivables` funding / funding-claim / repayment / repayment-claim / closing / finality smoke |
 
 ## Verified Transaction IDs
 
@@ -34,6 +37,7 @@ Packaged consumer smokes:
 - `npm run e2e:policy-consumer`
 - `npm run e2e:bond-consumer`
 - `npm run e2e:fund-consumer`
+- `npm run e2e:receivable-consumer`
 
 ## Files In This Directory
 
@@ -43,6 +47,7 @@ Packaged consumer smokes:
 - `test-custom-flow.mjs`: custom `.simf` happy path
 - `test-gasless-flow.mjs`: relayer-backed gasless path
 - `scripts/e2e-fund-consumer.mjs`: packaged LP fund business-flow smoke in this repo, including signed receipt envelopes and two reconciliations before closing
+- `scripts/e2e-receivable-consumer.mjs`: packaged receivable funding / funding-claim / repayment / repayment-claim / closing smoke in this repo
 
 ## How To Reproduce
 
@@ -78,4 +83,4 @@ These scripts assume:
 - Built-in presets are the easiest onboarding path.
 - Custom `.simf` authoring is also viable from the published package.
 - Gasless execution works, but it depends on a trusted relayer and a wallet-capable RPC setup.
-- The packaged business-layer surfaces also work from a blank external project, including `sdk.funds` with signed receipt envelopes.
+- The packaged business-layer surfaces also work from a blank external project, including `sdk.funds` with signed receipt envelopes and `sdk.receivables` with repayment-first claim verification plus lineage-aware closing.

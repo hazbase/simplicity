@@ -6,7 +6,7 @@ import {
 } from "../dist/index.js";
 import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
-const RUNTIME_STATE_SCHEMA_VERSION = "fund-e2e-testnet-state/v4";
+const RUNTIME_STATE_SCHEMA_VERSION = "fund-e2e-testnet-state/v6";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -100,16 +100,62 @@ async function readJson(path) {
 async function loadRuntimeState(runtimeStatePath) {
   if (!existsSync(runtimeStatePath)) return null;
   const parsed = JSON.parse(await readFile(runtimeStatePath, "utf8"));
-  if (parsed.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) {
+  if (parsed.schemaVersion !== "fund-e2e-testnet-state/v5" && parsed.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) {
     throw new Error(
       `Unsupported runtime state schemaVersion: ${parsed.schemaVersion} (expected ${RUNTIME_STATE_SCHEMA_VERSION})`,
     );
+  }
+  if (parsed.schemaVersion === "fund-e2e-testnet-state/v5") {
+    parsed.schemaVersion = RUNTIME_STATE_SCHEMA_VERSION;
   }
   return parsed;
 }
 
 async function saveRuntimeState(runtimeStatePath, runtimeState) {
+  runtimeState.schemaVersion = RUNTIME_STATE_SCHEMA_VERSION;
   await writeFile(runtimeStatePath, `${JSON.stringify(runtimeState, null, 2)}\n`, "utf8");
+}
+
+async function loadReceiptChainValues(runtimeState) {
+  if (!runtimeState.positionReceiptChainPath || !existsSync(runtimeState.positionReceiptChainPath)) {
+    return [];
+  }
+  const parsed = await readJson(runtimeState.positionReceiptChainPath);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+async function saveReceiptChainValues(runtimeState, values) {
+  runtimeState.positionReceiptChainLength = values.length;
+  runtimeState.positionReceiptChainEnvelopeHash = values.length > 0 ? values.at(-1)?.attestation?.positionReceiptHash ?? null : null;
+  await writeJson(runtimeState.positionReceiptChainPath, values);
+}
+
+async function appendReceiptEnvelopeToChain(runtimeState, envelope) {
+  const current = await loadReceiptChainValues(runtimeState);
+  const nextHash = envelope.attestation.positionReceiptHash;
+  const deduped = current.length > 0 && current.at(-1)?.attestation?.positionReceiptHash === nextHash
+    ? current
+    : [...current, clone(envelope)];
+  await saveReceiptChainValues(runtimeState, deduped);
+  return deduped;
+}
+
+async function resolveReceiptChainValues(runtimeState) {
+  const persisted = await loadReceiptChainValues(runtimeState);
+  if (persisted.length > 0) {
+    return persisted;
+  }
+  const fallback = [];
+  if (runtimeState.previousPositionReceiptEnvelopePath && existsSync(runtimeState.previousPositionReceiptEnvelopePath)) {
+    fallback.push(await readJson(runtimeState.previousPositionReceiptEnvelopePath));
+  }
+  if (runtimeState.positionReceiptEnvelopePath && existsSync(runtimeState.positionReceiptEnvelopePath)) {
+    fallback.push(await readJson(runtimeState.positionReceiptEnvelopePath));
+  }
+  if (fallback.length > 0) {
+    await saveReceiptChainValues(runtimeState, fallback);
+  }
+  return fallback;
 }
 
 async function waitForFundingConfirmations(sdk, txid, input) {
@@ -355,6 +401,7 @@ function buildFinalClaimCloseReport(input) {
     capitalCallTrust: input.capitalCallTrust,
     outputBindingTrust: input.outputBindingTrust,
     receiptTrust: input.receiptTrust,
+    receiptChainTrust: input.receiptChainTrust,
     closingTrust: input.closingTrust,
   };
 }
@@ -386,6 +433,14 @@ async function main() {
   const openArtifactPath = env("FUND_OPEN_ARTIFACT_PATH", deriveSiblingPath(runtimeStatePath, "capital-call-open", "artifact.json"));
   const refundOnlyArtifactPath = env("FUND_REFUND_ONLY_ARTIFACT_PATH", deriveSiblingPath(runtimeStatePath, "capital-call-refund-only", "artifact.json"));
   const positionReceiptEnvelopePath = env("FUND_POSITION_RECEIPT_PATH", deriveSiblingPath(runtimeStatePath, "position-receipt-envelope", "json"));
+  const previousPositionReceiptEnvelopePath = env(
+    "FUND_PREVIOUS_POSITION_RECEIPT_PATH",
+    deriveSiblingPath(runtimeStatePath, "position-receipt-envelope.previous", "json"),
+  );
+  const positionReceiptChainPath = env(
+    "FUND_POSITION_RECEIPT_CHAIN_PATH",
+    deriveSiblingPath(runtimeStatePath, "position-receipt-chain", "json"),
+  );
   const closingPath = env("FUND_CLOSING_PATH", deriveSiblingPath(runtimeStatePath, "closing", "json"));
 
   const capitalCallAmountSat = Number(env("FUND_CAPITAL_CALL_AMOUNT_SAT", "6000"));
@@ -440,6 +495,8 @@ async function main() {
     openArtifactPath,
     refundOnlyArtifactPath,
     positionReceiptEnvelopePath,
+    previousPositionReceiptEnvelopePath,
+    positionReceiptChainPath,
     closingPath,
     distributions: [],
   };
@@ -472,6 +529,8 @@ async function main() {
   runtimeState.openArtifactPath = openArtifactPath;
   runtimeState.refundOnlyArtifactPath = refundOnlyArtifactPath;
   runtimeState.positionReceiptEnvelopePath = positionReceiptEnvelopePath;
+  runtimeState.previousPositionReceiptEnvelopePath = previousPositionReceiptEnvelopePath;
+  runtimeState.positionReceiptChainPath = positionReceiptChainPath;
   runtimeState.closingPath = closingPath;
   buildDistributionEntries(runtimeState, {
     outputBindingMode,
@@ -583,6 +642,7 @@ async function main() {
         capitalCallPath: refundOnlyCapitalCallPath,
         refundAddress,
         refundedAt,
+        outputBindingMode,
         wallet: env("ELEMENTS_RPC_WALLET", "simplicity-test"),
         signer: { type: "schnorrPrivkeyHex", privkeyHex: lpKeyPair.privkeyHex },
         feeSat,
@@ -646,6 +706,7 @@ async function main() {
     });
     await writeJson(claimedCapitalCallPath, claimResult.claimedCapitalCall);
     await writeJson(positionReceiptEnvelopePath, claimResult.positionReceiptEnvelope);
+    await saveReceiptChainValues(runtimeState, [claimResult.positionReceiptEnvelope]);
     runtimeState.capitalCallClaimTxId = claimResult.execution.txId;
     runtimeState.phase = "capital-call-claimed";
     await saveRuntimeState(runtimeStatePath, runtimeState);
@@ -658,9 +719,14 @@ async function main() {
   }
 
   if (!capitalCallClaimReport && existsSync(positionReceiptEnvelopePath)) {
+    const receiptChainValues = await resolveReceiptChainValues(runtimeState);
     const verifiedReceipt = await sdk.funds.verifyPositionReceipt({
       definitionPath,
       positionReceiptPath: positionReceiptEnvelopePath,
+      previousPositionReceiptPath: existsSync(runtimeState.previousPositionReceiptEnvelopePath)
+        ? runtimeState.previousPositionReceiptEnvelopePath
+        : undefined,
+      positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
     });
     capitalCallClaimReport = {
       schemaVersion: "fund-verification-report/v1",
@@ -669,6 +735,7 @@ async function main() {
         cutoffMode: "rollover-window",
       },
       receiptTrust: verifiedReceipt.report.receiptTrust,
+      receiptChainTrust: verifiedReceipt.report.receiptChainTrust,
     };
   }
 
@@ -756,7 +823,9 @@ async function main() {
         signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
         signedAt: entry.approvedAt,
       });
+      await writeJson(runtimeState.previousPositionReceiptEnvelopePath, await readJson(positionReceiptEnvelopePath));
       await writeJson(positionReceiptEnvelopePath, reconciled.reconciledReceiptEnvelope);
+      await appendReceiptEnvelopeToChain(runtimeState, reconciled.reconciledReceiptEnvelope);
       entry.reconciledEnvelopeHash = reconciled.reconciledReceiptEnvelopeSummary.hash;
       entry.reconciledSequence = reconciled.reconciledReceiptValue.sequence;
       await saveRuntimeState(runtimeStatePath, runtimeState);
@@ -775,16 +844,21 @@ async function main() {
   const finalDistributionHashes = await Promise.all(
     runtimeState.distributions.map(async (entry) => summarizeDistributionDescriptor(await readJson(entry.distributionPath)).hash),
   );
+  const receiptChainValues = await resolveReceiptChainValues(runtimeState);
 
   const closingPrepared = existsSync(closingPath)
     ? await sdk.funds.prepareClosing({
         definitionPath,
         positionReceiptPath: positionReceiptEnvelopePath,
+        previousPositionReceiptPath: runtimeState.previousPositionReceiptEnvelopePath,
+        positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
         closingPath,
       })
     : await sdk.funds.prepareClosing({
         definitionPath,
         positionReceiptPath: positionReceiptEnvelopePath,
+        previousPositionReceiptPath: runtimeState.previousPositionReceiptEnvelopePath,
+        positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
         closingId,
         finalDistributionHashes,
         closedAt,
@@ -804,16 +878,25 @@ async function main() {
   const finalReceiptVerification = await sdk.funds.verifyPositionReceipt({
     definitionPath,
     positionReceiptPath: positionReceiptEnvelopePath,
+    previousPositionReceiptPath: runtimeState.previousPositionReceiptEnvelopePath,
+    positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
+  });
+  const finalReceiptChainVerification = await sdk.funds.verifyPositionReceiptChain({
+    definitionPath,
+    positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
   });
   const closingVerification = await sdk.funds.verifyClosing({
     definitionPath,
     positionReceiptPath: positionReceiptEnvelopePath,
+    previousPositionReceiptPath: runtimeState.previousPositionReceiptEnvelopePath,
+    positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
     closingPath,
   });
   const finalReport = buildFinalClaimCloseReport({
     capitalCallTrust: capitalCallClaimReport?.capitalCallTrust,
     outputBindingTrust: lastDistributionReport?.outputBindingTrust,
     receiptTrust: finalReceiptVerification.report.receiptTrust,
+    receiptChainTrust: finalReceiptChainVerification.report.receiptChainTrust,
     closingTrust: closingVerification.report.closingTrust,
   });
 
@@ -821,6 +904,8 @@ async function main() {
     definitionPath,
     capitalCallPath: claimedCapitalCallPath,
     positionReceiptPath: positionReceiptEnvelopePath,
+    previousPositionReceiptPath: runtimeState.previousPositionReceiptEnvelopePath,
+    positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
     distributionPaths,
     closingPath,
     verificationReportValue: finalReport,
@@ -829,6 +914,8 @@ async function main() {
     definitionPath,
     capitalCallPath: claimedCapitalCallPath,
     positionReceiptPath: positionReceiptEnvelopePath,
+    previousPositionReceiptPath: runtimeState.previousPositionReceiptEnvelopePath,
+    positionReceiptChainValues: receiptChainValues.length > 0 ? receiptChainValues : undefined,
     distributionPaths,
     closingPath,
     verificationReportValue: finalReport,
@@ -840,6 +927,7 @@ async function main() {
     definition: capitalCallPrepared.definition,
     capitalCall: await readJson(claimedCapitalCallPath),
     positionReceiptEnvelope: await readJson(positionReceiptEnvelopePath),
+    positionReceiptChain: receiptChainValues,
     distributions: await Promise.all(runtimeState.distributions.map((entry) => readJson(entry.distributionPath))),
     closing: await readJson(closingPath),
     openContractAddress,
@@ -852,6 +940,7 @@ async function main() {
     })),
     evidence,
     finality,
+    fullChainVerified: finalReceiptChainVerification.report.receiptChainTrust?.fullChainVerified ?? false,
   };
 
   runtimeState.phase = "finalized";
@@ -862,6 +951,7 @@ async function main() {
     claimTxId: runtimeState.capitalCallClaimTxId,
     distributionExecutionTxIds: runtimeState.distributions.map((entry) => entry.executionTxId),
     positionReceiptEnvelopeHash: finality.positionReceiptEnvelopeHash,
+    fullChainVerified: finalReceiptChainVerification.report.receiptChainTrust?.fullChainVerified ?? false,
     closingHash: finality.closingHash,
   });
   console.log(JSON.stringify(result, null, 2));

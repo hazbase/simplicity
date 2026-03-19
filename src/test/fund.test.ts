@@ -24,6 +24,7 @@ import {
   summarizeLPPositionReceiptEnvelope,
   validateClosingAgainstReceipt,
   validateDistributionAgainstReceipt,
+  verifyLPPositionReceiptEnvelopeChain,
   verifyLPPositionReceiptEnvelope,
 } from "../domain/fundValidation";
 import {
@@ -35,8 +36,10 @@ import {
   reconcilePosition,
   signPositionReceipt,
   verifyCapitalCall,
+  verifyClosing,
   verifyDistribution,
   verifyPositionReceipt,
+  verifyPositionReceiptChain,
 } from "../domain/fund";
 import type { CapitalCallState, FundDefinition, LPPositionReceipt, LPPositionReceiptEnvelope } from "../core/types";
 
@@ -87,13 +90,59 @@ function makeCapitalCall(overrides: Partial<CapitalCallState> = {}): CapitalCall
   };
 }
 
-function makeEnvelope(receipt: LPPositionReceipt): LPPositionReceiptEnvelope {
+async function makeEnvelope(receipt: LPPositionReceipt): Promise<LPPositionReceiptEnvelope> {
   return signLPPositionReceipt({
     receipt,
     managerXonly: MANAGER_XONLY,
     signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
     signedAt: "2026-03-18T00:00:00Z",
   });
+}
+
+async function makeReceiptChain() {
+  const capitalCall = makeCapitalCall();
+  const initialReceipt = buildLPPositionReceipt({
+    positionId: "POS-001",
+    capitalCall,
+    effectiveAt: "2026-03-18T00:00:00Z",
+  });
+  const initialEnvelope = await makeEnvelope(initialReceipt);
+  const firstDistribution = buildDistributionDescriptor({
+    distributionId: "DIST-001",
+    receipt: initialReceipt,
+    assetId: capitalCall.currencyAssetId,
+    amountSat: 2000,
+    approvedAt: "2027-03-18T00:00:00Z",
+  });
+  const afterFirstReceipt = reconcileLPPositionReceipt({
+    previousEnvelope: initialEnvelope,
+    distributions: [firstDistribution],
+  });
+  const afterFirstEnvelope = await makeEnvelope(afterFirstReceipt);
+  const secondDistribution = buildDistributionDescriptor({
+    distributionId: "DIST-002",
+    receipt: afterFirstReceipt,
+    assetId: capitalCall.currencyAssetId,
+    amountSat: initialReceipt.fundedAmount - 2000,
+    approvedAt: "2028-03-18T00:00:00Z",
+  });
+  const afterSecondReceipt = reconcileLPPositionReceipt({
+    previousEnvelope: afterFirstEnvelope,
+    distributions: [secondDistribution],
+  });
+  const afterSecondEnvelope = await makeEnvelope(afterSecondReceipt);
+  return {
+    capitalCall,
+    initialReceipt,
+    initialEnvelope,
+    firstDistribution,
+    afterFirstReceipt,
+    afterFirstEnvelope,
+    secondDistribution,
+    afterSecondReceipt,
+    afterSecondEnvelope,
+    chain: [initialEnvelope, afterFirstEnvelope, afterSecondEnvelope],
+  };
 }
 
 async function hasToolchain(): Promise<boolean> {
@@ -152,14 +201,14 @@ test("LPPositionReceipt generation is stable and starts at sequence 0", () => {
   assert.equal(summary.hash.length, 64);
 });
 
-test("position receipt envelope signs and verifies against manager attestation", () => {
+test("position receipt envelope signs and verifies against manager attestation", async () => {
   const receipt = buildLPPositionReceipt({
     positionId: "POS-001",
     capitalCall: makeCapitalCall(),
     effectiveAt: "2026-03-18T00:00:00Z",
   });
-  const envelope = makeEnvelope(receipt);
-  const checks = verifyLPPositionReceiptEnvelope({
+  const envelope = await makeEnvelope(receipt);
+  const checks = await verifyLPPositionReceiptEnvelope({
     envelope,
     expectedManagerXonly: MANAGER_XONLY,
   });
@@ -171,13 +220,13 @@ test("position receipt envelope signs and verifies against manager attestation",
   assert.equal(summarizeLPPositionReceiptEnvelope(envelope).hash.length, 64);
 });
 
-test("position receipt envelope rejects signer mismatch", () => {
+test("position receipt envelope rejects signer mismatch", async () => {
   const receipt = buildLPPositionReceipt({
     positionId: "POS-001",
     capitalCall: makeCapitalCall(),
     effectiveAt: "2026-03-18T00:00:00Z",
   });
-  assert.throws(
+  await assert.rejects(
     () => signLPPositionReceipt({
       receipt,
       managerXonly: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -206,13 +255,13 @@ test("distribution descriptor is tied to receipt hash", () => {
   assert.equal(summarizeDistributionDescriptor(distribution).hash.length, 64);
 });
 
-test("reconcileLPPositionReceipt increments sequence and previousReceiptHash", () => {
+test("reconcileLPPositionReceipt increments sequence and previousReceiptHash", async () => {
   const receipt = buildLPPositionReceipt({
     positionId: "POS-001",
     capitalCall: makeCapitalCall(),
     effectiveAt: "2026-03-18T00:00:00Z",
   });
-  const envelope = makeEnvelope(receipt);
+  const envelope = await makeEnvelope(receipt);
   const distribution = buildDistributionDescriptor({
     distributionId: "DIST-001",
     receipt,
@@ -230,7 +279,66 @@ test("reconcileLPPositionReceipt increments sequence and previousReceiptHash", (
   assert.equal(reconciled.status, "PARTIALLY_DISTRIBUTED");
 });
 
-test("closing requires fully distributed receipt", () => {
+test("position receipt continuity requires the immediate previous envelope", async () => {
+  const receipt = buildLPPositionReceipt({
+    positionId: "POS-001",
+    capitalCall: makeCapitalCall(),
+    effectiveAt: "2026-03-18T00:00:00Z",
+  });
+  const envelope = await makeEnvelope(receipt);
+  const distribution = buildDistributionDescriptor({
+    distributionId: "DIST-001",
+    receipt,
+    assetId: "bitcoin",
+    amountSat: 2000,
+    approvedAt: "2027-03-18T00:00:00Z",
+  });
+  const reconciled = reconcileLPPositionReceipt({
+    previousEnvelope: envelope,
+    distributions: [distribution],
+  });
+  const reconciledEnvelope = await makeEnvelope(reconciled);
+  const withoutPrevious = await verifyLPPositionReceiptEnvelope({
+    envelope: reconciledEnvelope,
+    expectedManagerXonly: MANAGER_XONLY,
+  });
+  const withPrevious = await verifyLPPositionReceiptEnvelope({
+    envelope: reconciledEnvelope,
+    expectedManagerXonly: MANAGER_XONLY,
+    previousEnvelope: envelope,
+  });
+  assert.equal(withoutPrevious.continuityVerified, false);
+  assert.equal(withoutPrevious.previousEnvelopeProvided, false);
+  assert.equal(withPrevious.continuityVerified, true);
+  assert.equal(withPrevious.previousReceiptHashMatch, true);
+  assert.equal(withPrevious.previousSequenceMatch, true);
+});
+
+test("full receipt chain verification succeeds for contiguous attested envelopes", async () => {
+  const { chain } = await makeReceiptChain();
+  const checks = await verifyLPPositionReceiptEnvelopeChain({
+    envelopes: chain,
+    expectedManagerXonly: MANAGER_XONLY,
+  });
+  assert.equal(checks.chainLength, 3);
+  assert.equal(checks.startsAtGenesis, true);
+  assert.equal(checks.sequenceContiguous, true);
+  assert.equal(checks.allContinuityVerified, true);
+  assert.equal(checks.fullChainVerified, true);
+});
+
+test("full receipt chain verification detects partial history", async () => {
+  const { afterFirstEnvelope, afterSecondEnvelope } = await makeReceiptChain();
+  const checks = await verifyLPPositionReceiptEnvelopeChain({
+    envelopes: [afterFirstEnvelope, afterSecondEnvelope],
+    expectedManagerXonly: MANAGER_XONLY,
+  });
+  assert.equal(checks.startsAtGenesis, false);
+  assert.equal(checks.latestSequenceCovered, false);
+  assert.equal(checks.fullChainVerified, false);
+});
+
+test("closing requires fully distributed receipt", async () => {
   const receipt = buildLPPositionReceipt({
     positionId: "POS-001",
     capitalCall: makeCapitalCall(),
@@ -244,7 +352,7 @@ test("closing requires fully distributed receipt", () => {
     approvedAt: "2027-03-18T00:00:00Z",
   });
   const reconciled = reconcileLPPositionReceipt({
-    previousEnvelope: makeEnvelope(receipt),
+    previousEnvelope: await makeEnvelope(receipt),
     distributions: [fullDistribution],
   });
   const closing = buildFundClosingDescriptor({
@@ -265,6 +373,7 @@ test("sdk exposes funds security-first business layer", () => {
   assert.equal(typeof sdk.funds.executeCapitalCallRefund, "function");
   assert.equal(typeof sdk.funds.signPositionReceipt, "function");
   assert.equal(typeof sdk.funds.verifyPositionReceipt, "function");
+  assert.equal(typeof sdk.funds.verifyPositionReceiptChain, "function");
   assert.equal("compileSettlementMachine" in (sdk.funds as Record<string, unknown>), false);
 });
 
@@ -291,6 +400,63 @@ test("signPositionReceipt and verifyPositionReceipt work through public API", as
   assert.equal(verified.report.receiptTrust?.attestationVerified, true);
 });
 
+test("verifyPositionReceipt requires previous envelope for sequence>0", async () => {
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const definition = makeDefinition();
+  const receipt = buildLPPositionReceipt({
+    positionId: "POS-001",
+    capitalCall: makeCapitalCall(),
+    effectiveAt: "2026-03-18T00:00:00Z",
+  });
+  const envelope = await makeEnvelope(receipt);
+  const distribution = buildDistributionDescriptor({
+    distributionId: "DIST-001",
+    receipt,
+    assetId: "bitcoin",
+    amountSat: 2000,
+    approvedAt: "2027-03-18T00:00:00Z",
+  });
+  const reconciledReceipt = reconcileLPPositionReceipt({
+    previousEnvelope: envelope,
+    distributions: [distribution],
+  });
+  const reconciledEnvelope = await makeEnvelope(reconciledReceipt);
+  await assert.rejects(
+    () => verifyPositionReceipt(sdk, {
+      definitionValue: definition,
+      positionReceiptValue: reconciledEnvelope,
+    }),
+    (error: unknown) => error instanceof ValidationError
+      && typeof error.details === "object"
+      && error.details !== null
+      && "code" in error.details
+      && (error.details as { code?: string }).code === "FUND_PREVIOUS_POSITION_ENVELOPE_REQUIRED",
+  );
+  const verified = await verifyPositionReceipt(sdk, {
+    definitionValue: definition,
+    positionReceiptValue: reconciledEnvelope,
+    previousPositionReceiptValue: envelope,
+  });
+  assert.equal(verified.report.receiptTrust?.continuityVerified, true);
+  assert.equal(verified.report.receiptChainTrust?.chainLength, 2);
+  assert.equal(verified.report.receiptChainTrust?.fullChainVerified, true);
+});
+
+test("verifyPositionReceiptChain verifies full canonical receipt history through public API", async () => {
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const definition = makeDefinition();
+  const { chain, afterSecondReceipt } = await makeReceiptChain();
+  const verified = await verifyPositionReceiptChain(sdk, {
+    definitionValue: definition,
+    positionReceiptChainValues: chain,
+  });
+  assert.equal(verified.verified, true);
+  assert.equal(verified.positionReceiptValue.receipt.positionId, afterSecondReceipt.positionId);
+  assert.equal(verified.report.receiptChainTrust?.chainLength, 3);
+  assert.equal(verified.report.receiptChainTrust?.startsAtGenesis, true);
+  assert.equal(verified.report.receiptChainTrust?.fullChainVerified, true);
+});
+
 test("reconcilePosition rolls an attested receipt forward", async () => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   const definition = makeDefinition();
@@ -299,7 +465,7 @@ test("reconcilePosition rolls an attested receipt forward", async () => {
     capitalCall: makeCapitalCall(),
     effectiveAt: "2026-03-18T00:00:00Z",
   });
-  const envelope = makeEnvelope(receipt);
+  const envelope = await makeEnvelope(receipt);
   const distribution = buildDistributionDescriptor({
     distributionId: "DIST-001",
     receipt,
@@ -322,40 +488,20 @@ test("reconcilePosition rolls an attested receipt forward", async () => {
 test("prepareClosing and finality export require attested envelopes", async () => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   const definition = makeDefinition();
-  const capitalCall = makeCapitalCall();
-  const receipt = buildLPPositionReceipt({
-    positionId: "POS-001",
+  const {
     capitalCall,
-    effectiveAt: "2026-03-18T00:00:00Z",
-  });
-  const firstDistribution = buildDistributionDescriptor({
-    distributionId: "DIST-001",
-    receipt,
-    assetId: "bitcoin",
-    amountSat: 2000,
-    approvedAt: "2027-03-18T00:00:00Z",
-  });
-  const firstEnvelope = makeEnvelope(receipt);
-  const secondReceipt = reconcileLPPositionReceipt({
-    previousEnvelope: firstEnvelope,
-    distributions: [firstDistribution],
-  });
-  const secondEnvelope = makeEnvelope(secondReceipt);
-  const secondDistribution = buildDistributionDescriptor({
-    distributionId: "DIST-002",
-    receipt: secondReceipt,
-    assetId: "bitcoin",
-    amountSat: 4000,
-    approvedAt: "2028-03-18T00:00:00Z",
-  });
-  const settledReceipt = reconcileLPPositionReceipt({
-    previousEnvelope: secondEnvelope,
-    distributions: [secondDistribution],
-  });
-  const settledEnvelope = makeEnvelope(settledReceipt);
+    firstDistribution,
+    afterFirstEnvelope,
+    secondDistribution,
+    afterSecondReceipt: settledReceipt,
+    afterSecondEnvelope: settledEnvelope,
+    chain,
+  } = await makeReceiptChain();
   const closing = await prepareClosing(sdk, {
     definitionValue: definition,
     positionReceiptValue: settledEnvelope,
+    previousPositionReceiptValue: afterFirstEnvelope,
+    positionReceiptChainValues: chain,
     closingId: "CLOSE-001",
     finalDistributionHashes: [
       summarizeDistributionDescriptor(firstDistribution).hash,
@@ -367,6 +513,8 @@ test("prepareClosing and finality export require attested envelopes", async () =
     definitionValue: definition,
     capitalCallValue: capitalCall,
     positionReceiptValue: settledEnvelope,
+    previousPositionReceiptValue: afterFirstEnvelope,
+    positionReceiptChainValues: chain,
     distributionValues: [firstDistribution, secondDistribution],
     closingValue: closing.closingValue,
   });
@@ -374,13 +522,39 @@ test("prepareClosing and finality export require attested envelopes", async () =
     definitionValue: definition,
     capitalCallValue: capitalCall,
     positionReceiptValue: settledEnvelope,
+    previousPositionReceiptValue: afterFirstEnvelope,
+    positionReceiptChainValues: chain,
     distributionValues: [firstDistribution, secondDistribution],
+    closingValue: closing.closingValue,
+  });
+  const verifiedReceipt = await verifyPositionReceipt(sdk, {
+    definitionValue: definition,
+    positionReceiptValue: settledEnvelope,
+    previousPositionReceiptValue: afterFirstEnvelope,
+    positionReceiptChainValues: chain,
+  });
+  const verifiedClosing = await verifyClosing(sdk, {
+    definitionValue: definition,
+    positionReceiptValue: settledEnvelope,
+    previousPositionReceiptValue: afterFirstEnvelope,
+    positionReceiptChainValues: chain,
     closingValue: closing.closingValue,
   });
   assert.equal(evidence.positionReceipt?.hash, summarizeLPPositionReceipt(settledReceipt).hash);
   assert.equal(evidence.positionReceiptEnvelope?.hash, summarizeLPPositionReceiptEnvelope(settledEnvelope).hash);
+  assert.equal(evidence.trustSummary.lineage?.lineageKind, "receipt-chain");
+  assert.equal(evidence.trustSummary.lineage?.fullLineageVerified, true);
   assert.equal(finality.positionReceiptHash, summarizeLPPositionReceipt(settledReceipt).hash);
   assert.equal(finality.positionReceiptEnvelopeHash, summarizeLPPositionReceiptEnvelope(settledEnvelope).hash);
+  assert.equal(finality.trustSummary.lineage?.lineageKind, "receipt-chain");
+  assert.equal(finality.trustSummary.lineage?.fullLineageVerified, true);
+  assert.equal(verifiedReceipt.report.receiptTrust?.continuityVerified, true);
+  assert.equal(verifiedReceipt.report.receiptChainTrust?.fullChainVerified, true);
+  assert.equal(closing.report.receiptChainTrust?.fullChainVerified, true);
+  assert.equal(verifiedClosing.report.receiptTrust?.continuityVerified, true);
+  assert.equal(verifiedClosing.report.receiptChainTrust?.fullChainVerified, true);
+  assert.equal(evidence.trust.receiptChainTrust?.fullChainVerified, true);
+  assert.equal(finality.trust.receiptChainTrust?.fullChainVerified, true);
 });
 
 test("fund capital call open/refund-only and distribution contracts compile when toolchain is available", async (t) => {
@@ -409,7 +583,7 @@ test("fund capital call open/refund-only and distribution contracts compile when
     capitalCall,
     effectiveAt: "2026-03-18T00:00:00Z",
   });
-  const envelope = makeEnvelope(receipt);
+  const envelope = await makeEnvelope(receipt);
   const distributionPrepared = await prepareDistribution(sdk, {
     definitionValue: definition,
     positionReceiptValue: envelope,

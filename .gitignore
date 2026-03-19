@@ -6,3 +6,8 @@ dist
 .env
 .env.*
 !.env.example
+
+# Internal review / validation docs
+docs/case-studies/
+docs/design/*runtime-validation.md
+docs/consumer-validation/

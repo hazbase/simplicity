@@ -17,6 +17,11 @@ import {
   OutputRangeProofForm,
   SimplicityArtifact,
 } from "../core/types";
+import {
+  buildLineageTrustBase,
+  buildVerificationTrustSections,
+  buildVerificationTrustSummary,
+} from "../core/reporting";
 import { sha256HexUtf8, stableStringify } from "../core/summary";
 import {
   analyzeOutputRawFields,
@@ -39,6 +44,7 @@ import {
   validateBondCrossChecks,
   validateBondDefinition,
   validateBondIssuanceState,
+  verifyBondIssuanceHistory,
   validateBondStateTransition,
   buildClosedBondIssuanceState,
   buildRedeemedBondIssuanceState,
@@ -68,6 +74,119 @@ function resolveBondDocsAsset(filename: string): string {
   }
 
   return cwdCandidate;
+}
+
+async function loadIssuanceHistoryDocuments(
+  sdk: SimplicityClient,
+  input: {
+    issuanceHistoryPaths?: string[];
+    issuanceHistoryValues?: BondIssuanceState[];
+  },
+) {
+  const results: Array<{
+    state: Awaited<ReturnType<SimplicityClient["loadStateDocument"]>>;
+    value: BondIssuanceState;
+    summary: ReturnType<typeof summarizeBondIssuanceState>;
+  }> = [];
+
+  for (const issuancePath of input.issuanceHistoryPaths ?? []) {
+    const state = await sdk.loadStateDocument({
+      type: "bond-issuance",
+      id: "BOND-ISSUANCE-HISTORY",
+      jsonPath: issuancePath,
+    });
+    const value = validateBondIssuanceState(JSON.parse(state.canonicalJson));
+    results.push({
+      state,
+      value,
+      summary: summarizeBondIssuanceState(value),
+    });
+  }
+
+  for (const issuanceValue of input.issuanceHistoryValues ?? []) {
+    const value = validateBondIssuanceState(issuanceValue);
+    const state = await sdk.loadStateDocument({
+      type: "bond-issuance",
+      id: value.issuanceId,
+      value,
+    });
+    results.push({
+      state,
+      value,
+      summary: summarizeBondIssuanceState(value),
+    });
+  }
+
+  return results;
+}
+
+function buildBondIssuanceLineageTrust(
+  checks: ReturnType<typeof verifyBondIssuanceHistory>,
+): BondVerificationReport["issuanceLineageTrust"] {
+  const identityConsistent =
+    checks.issuanceIdConsistent
+    && checks.bondIdConsistent
+    && checks.currencyConsistent
+    && checks.controllerConsistent
+    && checks.issuerEntityConsistent
+    && checks.issuedPrincipalConsistent
+    && checks.allTransitionIdentitiesMatch;
+  return {
+    ...buildLineageTrustBase({
+      lineageKind: "state-history",
+      chainLength: checks.chainLength,
+      latestOrdinal: Math.max(0, checks.chainLength - 1),
+      allHashLinksVerified: checks.previousStateHashLinked && checks.allPreviousStateHashMatch,
+      identityConsistent,
+      fullLineageVerified: checks.fullHistoryVerified,
+    }),
+    latestStatus: checks.latestStatus,
+    startsAtGenesis: checks.startsAtGenesis,
+    previousStateHashLinked: checks.previousStateHashLinked,
+    issuanceIdConsistent: checks.issuanceIdConsistent,
+    bondIdConsistent: checks.bondIdConsistent,
+    currencyConsistent: checks.currencyConsistent,
+    controllerConsistent: checks.controllerConsistent,
+    issuerEntityConsistent: checks.issuerEntityConsistent,
+    issuedPrincipalConsistent: checks.issuedPrincipalConsistent,
+    allPreviousStateHashMatch: checks.allPreviousStateHashMatch,
+    allRedemptionArithmeticValid: checks.allRedemptionArithmeticValid,
+    allStatusProgressionValid: checks.allStatusProgressionValid,
+    allTransitionIdentitiesMatch: checks.allTransitionIdentitiesMatch,
+    fullHistoryVerified: checks.fullHistoryVerified,
+  };
+}
+
+function buildEmptyBondDefinitionTrust(): BondVerificationReport["artifactTrust"]["definition"] {
+  return {
+    artifactMatch: false,
+    onChainAnchorPresent: false,
+    onChainAnchorVerified: false,
+    effectiveMode: "none",
+  };
+}
+
+function buildEmptyBondStateTrust(): BondVerificationReport["stateTrust"] {
+  return {
+    artifactMatch: false,
+    onChainAnchorPresent: false,
+    onChainAnchorVerified: false,
+    effectiveMode: "none",
+  };
+}
+
+function buildBaseBondReport(input?: {
+  definitionTrust?: BondVerificationReport["artifactTrust"]["definition"];
+  stateTrust?: BondVerificationReport["stateTrust"];
+  requireArtifactTrust?: boolean;
+}) {
+  return buildVerificationTrustSections({
+    definitionTrust: input?.definitionTrust,
+    stateTrust: input?.stateTrust,
+    requireArtifactTrust: input?.requireArtifactTrust,
+    emptyDefinitionTrust: buildEmptyBondDefinitionTrust(),
+    emptyStateTrust: buildEmptyBondStateTrust(),
+  });
 }
 
 export async function defineBond(
@@ -223,12 +342,23 @@ export async function buildBondPayload(
     definitionValue?: BondDefinition;
     issuancePath?: string;
     issuanceValue?: BondIssuanceState;
+    issuanceHistoryPaths?: string[];
+    issuanceHistoryValues?: BondIssuanceState[];
   }
 ) {
   const verification = await verifyBond(sdk, input);
   const definitionValue = validateBondDefinition(JSON.parse(verification.definition.definition.canonicalJson));
   const issuanceValue = validateBondIssuanceState(JSON.parse(verification.issuance.state.canonicalJson));
   const issuanceSummary = summarizeBondIssuanceState(issuanceValue);
+  const issuanceHistory = input.issuanceHistoryPaths || input.issuanceHistoryValues
+    ? await loadIssuanceHistoryDocuments(sdk, {
+        issuanceHistoryPaths: input.issuanceHistoryPaths,
+        issuanceHistoryValues: input.issuanceHistoryValues,
+      })
+    : [];
+  const lineageChecks = issuanceHistory.length > 0
+    ? verifyBondIssuanceHistory({ history: issuanceHistory.map((entry) => entry.value) })
+    : undefined;
   return {
     artifact: verification.artifact,
     payload: {
@@ -261,7 +391,55 @@ export async function buildBondPayload(
     trust: {
       definitionTrust: verification.definition.trust,
       issuanceTrust: verification.issuance.trust,
+      issuanceLineageTrust: lineageChecks ? buildBondIssuanceLineageTrust(lineageChecks) : undefined,
     },
+    ...(issuanceHistory.length > 0
+      ? {
+          issuanceHistory: issuanceHistory.map((entry) => entry.state),
+          issuanceHistoryValues: issuanceHistory.map((entry) => entry.value),
+          issuanceHistorySummaries: issuanceHistory.map((entry) => entry.summary),
+        }
+      : {}),
+  };
+}
+
+export async function verifyIssuanceHistory(
+  sdk: SimplicityClient,
+  input: {
+    definitionPath?: string;
+    definitionValue?: BondDefinition;
+    issuanceHistoryPaths?: string[];
+    issuanceHistoryValues?: BondIssuanceState[];
+  },
+) {
+  const definitionSource = resolveValueOrPath({
+    pathValue: input.definitionPath,
+    objectValue: input.definitionValue,
+  });
+  const definition = input.definitionPath || input.definitionValue
+    ? await sdk.loadDefinition({
+        type: "bond",
+        id: input.definitionValue?.bondId ?? "BOND-2026-001",
+        ...definitionSource,
+      })
+    : undefined;
+  const definitionValue = definition ? validateBondDefinition(JSON.parse(definition.canonicalJson)) : undefined;
+  const issuanceHistory = await loadIssuanceHistoryDocuments(sdk, input);
+  const checks = verifyBondIssuanceHistory({ history: issuanceHistory.map((entry) => entry.value) });
+  if (definitionValue) {
+    validateBondCrossChecks(definitionValue, issuanceHistory.at(-1)!.value);
+  }
+  return {
+    verified: checks.fullHistoryVerified,
+    ...(definition ? { definition, definitionValue } : {}),
+    issuanceHistory: issuanceHistory.map((entry) => entry.state),
+    issuanceHistoryValues: issuanceHistory.map((entry) => entry.value),
+    issuanceHistorySummaries: issuanceHistory.map((entry) => entry.summary),
+    checks,
+    report: {
+      ...buildBaseBondReport({ requireArtifactTrust: true }),
+      issuanceLineageTrust: buildBondIssuanceLineageTrust(checks),
+    } satisfies BondVerificationReport,
   };
 }
 
@@ -1115,6 +1293,8 @@ export async function buildEvidenceBundle(
     definitionValue?: BondDefinition;
     issuancePath?: string;
     issuanceValue?: BondIssuanceState;
+    issuanceHistoryPaths?: string[];
+    issuanceHistoryValues?: BondIssuanceState[];
     settlementDescriptorValue?: BondSettlementDescriptor;
     closingDescriptorValue?: BondClosingDescriptor;
     transitionValue?: unknown;
@@ -1131,6 +1311,15 @@ export async function buildEvidenceBundle(
   });
   const definition = verification.definition.definition;
   const issuance = verification.issuance.state;
+  const issuanceHistory = input.issuanceHistoryPaths || input.issuanceHistoryValues
+    ? await loadIssuanceHistoryDocuments(sdk, {
+        issuanceHistoryPaths: input.issuanceHistoryPaths,
+        issuanceHistoryValues: input.issuanceHistoryValues,
+      })
+    : [];
+  const lineageChecks = issuanceHistory.length > 0
+    ? verifyBondIssuanceHistory({ history: issuanceHistory.map((entry) => entry.value) })
+    : undefined;
   const settlementCanonicalJson = input.settlementDescriptorValue
     ? summarizeBondSettlementDescriptor(input.settlementDescriptorValue).canonicalJson
     : null;
@@ -1176,11 +1365,11 @@ export async function buildEvidenceBundle(
         }
       : undefined,
     trust: {
-      artifactTrust: {
-        definition: verification.definition.trust,
-        state: verification.issuance.trust,
-      },
-      stateTrust: verification.issuance.trust,
+      ...buildBaseBondReport({
+        definitionTrust: verification.definition.trust,
+        stateTrust: verification.issuance.trust,
+      }),
+      issuanceLineageTrust: lineageChecks ? buildBondIssuanceLineageTrust(lineageChecks) : undefined,
       settlementTrust: input.settlementDescriptorValue
         ? {
             descriptorHashMatch: true,
@@ -1188,6 +1377,12 @@ export async function buildEvidenceBundle(
           }
         : undefined,
     },
+    trustSummary: buildVerificationTrustSummary({
+      definitionTrust: verification.definition.trust,
+      stateTrust: verification.issuance.trust,
+      bindingMode: input.settlementDescriptorValue?.outputBindingMode ?? "none",
+      lineageTrust: lineageChecks ? buildBondIssuanceLineageTrust(lineageChecks) : undefined,
+    }),
     renderedSourceHash: renderedSourceHash ?? undefined,
     sourceVerificationMode: renderedSourceHash ? "source-reloaded" : "artifact-only",
     compiled: {
@@ -1289,6 +1484,8 @@ export async function exportFinalityPayload(
     definitionValue?: BondDefinition;
     issuancePath?: string;
     issuanceValue?: BondIssuanceState;
+    issuanceHistoryPaths?: string[];
+    issuanceHistoryValues?: BondIssuanceState[];
     settlementDescriptorValue?: BondSettlementDescriptor;
     closingDescriptorValue?: BondClosingDescriptor;
   },
@@ -1299,11 +1496,7 @@ export async function exportFinalityPayload(
     payload: bondPayload.payload,
     bindingMode: input.settlementDescriptorValue?.outputBindingMode ?? "none",
     trust: bondPayload.trust,
-    trustSummary: {
-      definition: bondPayload.trust.definitionTrust,
-      issuance: bondPayload.trust.issuanceTrust,
-      bindingMode: input.settlementDescriptorValue?.outputBindingMode ?? "none",
-    },
+    trustSummary: evidence.trustSummary,
     evidenceSummary: {
       definitionHash: evidence.definition.hash,
       issuanceHash: evidence.issuance.hash,

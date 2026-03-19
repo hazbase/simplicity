@@ -55,10 +55,16 @@ async function main() {
     closingReason: (process.env.BOND_CLOSING_REASON as "REDEEMED" | "CANCELLED" | "MATURED_OUT" | undefined) ?? "REDEEMED",
   });
 
+  const issuanceHistory = await sdk.bonds.verifyIssuanceHistory({
+    definitionPath,
+    issuanceHistoryValues: [verified.issuance.value, redemption.preview.next, closing.closed],
+  });
+
   const finality = await sdk.bonds.exportFinalityPayload({
     artifactPath,
     definitionPath,
-    issuancePath,
+    issuanceValue: closing.closed,
+    issuanceHistoryValues: issuanceHistory.issuanceHistoryValues,
     settlementDescriptorValue: settlement.descriptor,
     closingDescriptorValue: closing.closing,
   });
@@ -87,6 +93,7 @@ async function main() {
           closedAt: closing.closing.closedAt,
           closingReason: closing.closing.closingReason,
         },
+        issuanceLineage: issuanceHistory.report.issuanceLineageTrust,
         finality: finality.payload,
         trustSummary: finality.trustSummary,
       },

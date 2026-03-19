@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createSimplicityClient } from "../dist/index.js";
 import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
-const RUNTIME_STATE_SCHEMA_VERSION = "bond-e2e-testnet-state/v2";
+const RUNTIME_STATE_SCHEMA_VERSION = "bond-e2e-testnet-state/v3";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -49,19 +50,57 @@ function defaultRuntimeStatePath(bindingMode) {
   return `/tmp/bond-e2e-testnet-${bindingMode}.runtime.json`;
 }
 
+function defaultIssuanceHistoryPath(bindingMode) {
+  return `/tmp/bond-e2e-testnet-${bindingMode}.issuance-history.json`;
+}
+
+function defaultClosedIssuancePath(bindingMode) {
+  return `/tmp/bond-e2e-testnet-${bindingMode}.closed-issuance.json`;
+}
+
 async function loadRuntimeState(runtimeStatePath) {
   if (!existsSync(runtimeStatePath)) return null;
   const parsed = JSON.parse(await readFile(runtimeStatePath, "utf8"));
-  if (parsed.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) {
+  if (parsed.schemaVersion !== "bond-e2e-testnet-state/v2" && parsed.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) {
     throw new Error(
       `Unsupported runtime state schemaVersion: ${parsed.schemaVersion} (expected ${RUNTIME_STATE_SCHEMA_VERSION})`,
     );
+  }
+  if (parsed.schemaVersion === "bond-e2e-testnet-state/v2") {
+    parsed.schemaVersion = RUNTIME_STATE_SCHEMA_VERSION;
   }
   return parsed;
 }
 
 async function saveRuntimeState(runtimeStatePath, runtimeState) {
+  runtimeState.schemaVersion = RUNTIME_STATE_SCHEMA_VERSION;
   await writeFile(runtimeStatePath, `${JSON.stringify(runtimeState, null, 2)}\n`, "utf8");
+}
+
+async function loadIssuanceHistoryValues(runtimeState) {
+  if (!runtimeState.issuanceHistoryPath || !existsSync(runtimeState.issuanceHistoryPath)) {
+    return [];
+  }
+  const parsed = JSON.parse(await readFile(runtimeState.issuanceHistoryPath, "utf8"));
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+async function saveIssuanceHistoryValues(runtimeState, values) {
+  runtimeState.issuanceHistoryLength = values.length;
+  runtimeState.latestIssuanceHistoryHash = values.length > 0
+    ? createHash("sha256").update(JSON.stringify(values.at(-1))).digest("hex")
+    : null;
+  await writeJson(runtimeState.issuanceHistoryPath, values);
+}
+
+async function appendIssuanceHistoryValue(runtimeState, issuanceValue) {
+  const current = await loadIssuanceHistoryValues(runtimeState);
+  const nextHash = JSON.stringify(issuanceValue);
+  const deduped = current.length > 0 && JSON.stringify(current.at(-1)) === nextHash
+    ? current
+    : [...current, clone(issuanceValue)];
+  await saveIssuanceHistoryValues(runtimeState, deduped);
+  return deduped;
 }
 
 async function waitForFundingConfirmations(sdk, txid, input) {
@@ -140,6 +179,10 @@ async function loadOrInitializeDefinitionState(sdk, input) {
     const compiled = await sdk.loadArtifact(input.runtimeState.artifactPath);
     const definition = JSON.parse(await readFile(input.runtimeState.definitionPath, "utf8"));
     const issuance = JSON.parse(await readFile(input.runtimeState.issuancePath, "utf8"));
+    if ((await loadIssuanceHistoryValues(input.runtimeState)).length === 0) {
+      await saveIssuanceHistoryValues(input.runtimeState, [issuance]);
+      await saveRuntimeState(input.runtimeStatePath, input.runtimeState);
+    }
     logPhase("defined", {
       contractAddress: compiled.contractAddress,
       maturityDate: definition.maturityDate,
@@ -178,6 +221,7 @@ async function loadOrInitializeDefinitionState(sdk, input) {
     contractAddress: compiled.contractAddress,
     maturityDate,
   });
+  await saveIssuanceHistoryValues(input.runtimeState, [issuance]);
   await saveRuntimeState(input.runtimeStatePath, input.runtimeState);
   logPhase("defined", {
     contractAddress: compiled.contractAddress,
@@ -262,6 +306,8 @@ async function main() {
   const issuancePath = env("BOND_ISSUANCE_PATH", defaultIssuancePath(outputBindingMode));
   const nextIssuancePath = env("BOND_NEXT_ISSUANCE_PATH", defaultNextIssuancePath(outputBindingMode));
   const runtimeStatePath = env("BOND_RUNTIME_STATE_PATH", defaultRuntimeStatePath(outputBindingMode));
+  const issuanceHistoryPath = env("BOND_ISSUANCE_HISTORY_PATH", defaultIssuanceHistoryPath(outputBindingMode));
+  const closedIssuancePath = env("BOND_CLOSED_ISSUANCE_PATH", defaultClosedIssuancePath(outputBindingMode));
   const maturityOffset = Number(env("BOND_MATURITY_OFFSET", "0"));
   const redeemAmount = Number(env("BOND_REDEEM_AMOUNT", "250000"));
   const nextAmountSat = Number(env("BOND_NEXT_AMOUNT_SAT", "1900"));
@@ -269,6 +315,8 @@ async function main() {
   const feeSat = Number(env("BOND_FEE_SAT", String(maxFeeSat)));
   const fundingSat = Number(env("BOND_FUNDING_SAT", String(nextAmountSat + feeSat)));
   const redeemedAt = env("BOND_REDEEMED_AT", "2027-03-10T00:00:00Z");
+  const closedAt = env("BOND_CLOSED_AT", redeemedAt);
+  const closingReason = env("BOND_CLOSING_REASON", "REDEEMED");
   const waitTimeoutMs = Number(env("BOND_WAIT_TIMEOUT_MS", "1800000"));
   const waitPollMs = Number(env("BOND_WAIT_POLL_MS", "30000"));
 
@@ -279,6 +327,8 @@ async function main() {
     definitionPath,
     issuancePath,
     nextIssuancePath,
+    issuanceHistoryPath,
+    closedIssuancePath,
     phase: "init",
   };
 
@@ -296,6 +346,8 @@ async function main() {
   runtimeState.definitionPath = definitionPath;
   runtimeState.issuancePath = issuancePath;
   runtimeState.nextIssuancePath = nextIssuancePath;
+  runtimeState.issuanceHistoryPath = issuanceHistoryPath;
+  runtimeState.closedIssuancePath = closedIssuancePath;
   await saveRuntimeState(runtimeStatePath, runtimeState);
 
   if (runtimeState.phase === "executed" && runtimeState.result) {
@@ -384,10 +436,66 @@ async function main() {
     broadcast: true,
   });
 
+  const nextIssuanceValue = JSON.parse(await readFile(runtimeState.nextIssuancePath, "utf8"));
+  let issuanceHistoryValues = await appendIssuanceHistoryValue(runtimeState, nextIssuanceValue);
+  let closing = null;
+  let closingVerification = null;
+  let finalIssuanceValue = nextIssuanceValue;
+
+  if (nextIssuanceValue.status === "REDEEMED") {
+    closing = await sdk.bonds.prepareClosing({
+      definitionPath: runtimeState.definitionPath,
+      redeemedIssuanceValue: nextIssuanceValue,
+      settlementDescriptorValue: result.settlement.descriptor,
+      closedAt,
+      closingReason,
+    });
+    await writeJson(runtimeState.closedIssuancePath, closing.closed);
+    issuanceHistoryValues = await appendIssuanceHistoryValue(runtimeState, closing.closed);
+    finalIssuanceValue = closing.closed;
+    closingVerification = await sdk.bonds.verifyClosing({
+      definitionPath: runtimeState.definitionPath,
+      redeemedIssuanceValue: nextIssuanceValue,
+      closedIssuanceValue: closing.closed,
+      settlementDescriptorValue: result.settlement.descriptor,
+      closingDescriptorValue: closing.closing,
+    });
+  }
+
+  const issuanceHistoryVerification = await sdk.bonds.verifyIssuanceHistory({
+    definitionPath: runtimeState.definitionPath,
+    issuanceHistoryValues,
+  });
+  const evidence = await sdk.bonds.exportEvidence({
+    artifactPath: runtimeState.artifactPath,
+    definitionPath: runtimeState.definitionPath,
+    issuanceValue: finalIssuanceValue,
+    issuanceHistoryValues,
+    settlementDescriptorValue: result.settlement.descriptor,
+    closingDescriptorValue: closing?.closing,
+  });
+  const finality = await sdk.bonds.exportFinalityPayload({
+    artifactPath: runtimeState.artifactPath,
+    definitionPath: runtimeState.definitionPath,
+    issuanceValue: finalIssuanceValue,
+    issuanceHistoryValues,
+    settlementDescriptorValue: result.settlement.descriptor,
+    closingDescriptorValue: closing?.closing,
+  });
+  const enrichedResult = {
+    ...result,
+    issuanceHistory: issuanceHistoryValues,
+    issuanceLineageTrust: issuanceHistoryVerification.report.issuanceLineageTrust,
+    closing,
+    closingVerification,
+    evidence,
+    finality,
+  };
+
   Object.assign(runtimeState, {
     phase: "executed",
     executionTxId: result.execution.txId ?? null,
-    result,
+    result: enrichedResult,
   });
   await saveRuntimeState(runtimeStatePath, runtimeState);
 
@@ -395,8 +503,10 @@ async function main() {
     txId: result.execution.txId ?? null,
     mode: result.mode,
     descriptorHash: result.settlement.descriptorHash,
+    fullHistoryVerified: issuanceHistoryVerification.report.issuanceLineageTrust?.fullHistoryVerified ?? false,
+    closingHash: closing?.closingHash ?? null,
   });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(enrichedResult, null, 2));
 }
 
 main().catch((error) => {

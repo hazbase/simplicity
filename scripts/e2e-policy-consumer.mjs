@@ -4,26 +4,14 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { buildConsumerNpmEnv, installPackedSdkForConsumer } from "./consumerInstall.mjs";
 
 const execFileAsync = promisify(execFile);
 
 async function main() {
   const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-policy-consumer-"));
-  const npmEnv = {
-    ...process.env,
-    NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE ?? path.join(workDir, ".npm-cache"),
-  };
-
-  const { stdout: packedName } = await execFileAsync("npm", ["pack", "--pack-destination", workDir], {
-    cwd: repoRoot,
-    env: npmEnv,
-  });
-  const tarballName = packedName.trim().split("\n").filter(Boolean).at(-1);
-  if (!tarballName) {
-    throw new Error("npm pack did not return a tarball name");
-  }
-  const tarballPath = path.join(workDir, tarballName);
+  const npmEnv = buildConsumerNpmEnv(workDir);
 
   await writeFile(
     path.join(workDir, "package.json"),
@@ -35,10 +23,7 @@ async function main() {
     "utf8",
   );
 
-  await execFileAsync("npm", ["install", tarballPath], {
-    cwd: workDir,
-    env: npmEnv,
-  });
+  await installPackedSdkForConsumer({ repoRoot, workDir, npmEnv });
 
   const manifestPath = path.join(workDir, "custom-policy.manifest.json");
   await writeFile(

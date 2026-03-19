@@ -29,16 +29,21 @@ function logPhase(phase, data = {}) {
   process.stderr.write(`${JSON.stringify({ phase, ...data })}\n`);
 }
 
-function defaultArtifactPath(bindingMode) {
-  return `/tmp/policy-e2e-testnet-${bindingMode}.artifact.json`;
+function defaultArtifactPath(bindingMode, scenario = "generic") {
+  return `/tmp/policy-e2e-testnet-${scenario}-${bindingMode}.artifact.json`;
 }
 
-function defaultStatePath(bindingMode) {
-  return `/tmp/policy-e2e-testnet-${bindingMode}.state.json`;
+function defaultStatePath(bindingMode, scenario = "generic") {
+  return `/tmp/policy-e2e-testnet-${scenario}-${bindingMode}.state.json`;
 }
 
-function defaultRuntimeStatePath(bindingMode) {
-  return `/tmp/policy-e2e-testnet-${bindingMode}.runtime.json`;
+function defaultRuntimeStatePath(bindingMode, scenario = "generic") {
+  return `/tmp/policy-e2e-testnet-${scenario}-${bindingMode}.runtime.json`;
+}
+
+function parseJsonEnv(name) {
+  const raw = process.env[name];
+  return raw ? JSON.parse(raw) : undefined;
 }
 
 async function loadRuntimeState(runtimeStatePath) {
@@ -184,17 +189,22 @@ async function main() {
   const amountSat = Number(env("POLICY_AMOUNT_SAT", "6000"));
   const feeSat = Number(env("POLICY_FEE_SAT", "100"));
   const fundingSat = Number(env("POLICY_FUNDING_SAT", String(amountSat + feeSat)));
+  const scenario = env("POLICY_SCENARIO", "generic");
   const outputBindingMode = env("POLICY_OUTPUT_BINDING_MODE", "script-bound");
   const nextRecipientXonly =
     env("POLICY_NEXT_RECIPIENT_XONLY", "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
-  const artifactPath = env("POLICY_ARTIFACT_PATH", defaultArtifactPath(outputBindingMode));
-  const statePath = env("POLICY_STATE_PATH", defaultStatePath(outputBindingMode));
-  const runtimeStatePath = env("POLICY_RUNTIME_STATE_PATH", defaultRuntimeStatePath(outputBindingMode));
+  const artifactPath = env("POLICY_ARTIFACT_PATH", defaultArtifactPath(outputBindingMode, scenario));
+  const statePath = env("POLICY_STATE_PATH", defaultStatePath(outputBindingMode, scenario));
+  const runtimeStatePath = env("POLICY_RUNTIME_STATE_PATH", defaultRuntimeStatePath(outputBindingMode, scenario));
+  const nextOutputHash = env("POLICY_NEXT_OUTPUT_HASH", "");
+  const nextOutputForm = parseJsonEnv("POLICY_NEXT_OUTPUT_FORM_JSON");
+  const nextRawOutput = parseJsonEnv("POLICY_NEXT_RAW_OUTPUT_JSON");
   const waitTimeoutMs = Number(env("POLICY_WAIT_TIMEOUT_MS", "1800000"));
   const waitPollMs = Number(env("POLICY_WAIT_POLL_MS", "30000"));
 
   const runtimeState = (await loadRuntimeState(runtimeStatePath)) ?? {
     schemaVersion: RUNTIME_STATE_SCHEMA_VERSION,
+    scenario,
     bindingMode: outputBindingMode,
     artifactPath,
     statePath,
@@ -212,6 +222,7 @@ async function main() {
   });
 
   runtimeState.bindingMode = outputBindingMode;
+  runtimeState.scenario = scenario;
   runtimeState.artifactPath = artifactPath;
   runtimeState.statePath = statePath;
   runtimeState.lockDistanceBlocks = lockDistanceBlocks;
@@ -288,6 +299,9 @@ async function main() {
     nextParams: {
       lockDistanceBlocks,
     },
+    ...(nextOutputHash ? { nextOutputHash } : {}),
+    ...(nextOutputForm ? { nextOutputForm } : {}),
+    ...(nextRawOutput ? { nextRawOutput } : {}),
     outputBindingMode,
     wallet: env("POLICY_WALLET", env("ELEMENTS_RPC_WALLET", "simplicity-test")),
     signer: {
@@ -300,6 +314,15 @@ async function main() {
   });
 
   const result = {
+    scenario,
+    currentRecipientXonly: currentRecipientKeyPair.xonly,
+    nextRecipientXonly,
+    ...(scenario === "restricted-otc"
+      ? {
+          sellerCustodianXonly: currentRecipientKeyPair.xonly,
+          approvedBuyerCustodianXonly: nextRecipientXonly,
+        }
+      : {}),
     fundingTxId,
     funding,
     issue: {
@@ -314,6 +337,10 @@ async function main() {
       broadcasted: execution.execution.broadcasted,
       summaryHash: execution.execution.summaryHash,
       verificationReport: execution.prepared.verificationReport,
+      enforcement: execution.prepared.verificationReport.enforcement,
+      reasonCode: execution.prepared.verificationReport.outputBinding?.reasonCode ?? null,
+      bindingMode: execution.prepared.verificationReport.outputBinding?.mode ?? null,
+      supportedForm: execution.prepared.verificationReport.outputBinding?.supportedForm ?? null,
       nextContractAddress: execution.prepared.nextCompiled?.contractAddress ?? null,
     },
   };

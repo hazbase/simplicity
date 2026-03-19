@@ -160,10 +160,17 @@ async function main() {
     signer: { type: "schnorrPrivkeyHex", privkeyHex: managerKeyPair.privkeyHex },
     signedAt: env("FUND_SECOND_APPROVED_AT", "2028-03-18T00:00:00Z"),
   });
+  const receiptChain = [
+    signedInitialReceipt.positionReceiptEnvelope,
+    afterFirst.reconciledReceiptEnvelope,
+    afterSecond.reconciledReceiptEnvelope,
+  ];
 
   const closingPrepared = await sdk.funds.prepareClosing({
     definitionValue: definition,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
     closingId: env("FUND_CLOSING_ID", "CLOSE-LOCAL-001"),
     finalDistributionHashes: [
       summarizeDistributionDescriptor(firstDistribution.distributionValue).hash,
@@ -174,10 +181,18 @@ async function main() {
   const verifiedFinalReceipt = await sdk.funds.verifyPositionReceipt({
     definitionValue: definition,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
+  });
+  const verifiedReceiptChain = await sdk.funds.verifyPositionReceiptChain({
+    definitionValue: definition,
+    positionReceiptChainValues: receiptChain,
   });
   const verifiedClosing = await sdk.funds.verifyClosing({
     definitionValue: definition,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
     closingValue: closingPrepared.closingValue,
   });
 
@@ -198,6 +213,8 @@ async function main() {
     definitionValue: definition,
     capitalCallValue: claimedCapitalCall,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
     distributionValues: [firstDistribution.distributionValue, secondDistribution.distributionValue],
     closingValue: closingPrepared.closingValue,
     verificationReportValue: {
@@ -207,6 +224,7 @@ async function main() {
         cutoffMode: "rollover-window",
       },
       receiptTrust: verifiedFinalReceipt.report.receiptTrust,
+      receiptChainTrust: verifiedFinalReceipt.report.receiptChainTrust,
       closingTrust: verifiedClosing.report.closingTrust,
     },
   });
@@ -230,6 +248,7 @@ async function main() {
       distribution: {
         verified: verifiedFirstDistribution.ok && verifiedSecondDistribution.ok,
         finalSequence: afterSecond.reconciledReceiptValue.sequence,
+        fullChainVerified: verifiedReceiptChain.report.receiptChainTrust?.fullChainVerified,
       },
       closing: {
         verified: true,

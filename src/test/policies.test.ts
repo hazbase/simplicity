@@ -1191,6 +1191,7 @@ test("exportEvidence carries transfer-aware verification report", async (t) => {
   assert.equal(evidence.report.outputBinding?.mode, "descriptor-bound");
   assert.equal(evidence.report.outputBinding?.reasonCode, "OK_EXPLICIT");
   assert.equal(evidence.report.outputBinding?.autoDerived, true);
+  assert.equal(evidence.trustSummary.bindingMode, "descriptor-bound");
   assert.equal(evidence.transfer?.hash, prepared.transferSummary.hash);
 });
 
@@ -1242,6 +1243,74 @@ test("exportEvidence preserves raw-output-v1 verification metadata", async (t) =
   assert.equal(evidence.report.outputBinding?.supportedForm, "raw-output-v1");
   assert.equal(evidence.report.outputBinding?.reasonCode, "OK_RAW_OUTPUT");
   assert.equal(evidence.report.outputBinding?.autoDerived, true);
+});
+
+test("restricted OTC scenario keeps transfer constrained to the approved next custodian", async (t) => {
+  if (!(await hasToolchain()) || !(await hasLocalElementsRpc())) {
+    t.skip("simc/hal-simplicity or local Elements RPC are not available");
+    return;
+  }
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const template = {
+    templateId: "recursive-delay",
+    value: { policyTemplateId: "recursive-delay" },
+    stateSimfPath: path.resolve("docs/definitions/recursive-delay-optional.simf"),
+    directStateSimfPath: path.resolve("docs/definitions/recursive-delay-required.simf"),
+  };
+  const sellerCustodianXonly = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+  const approvedBuyerCustodianXonly = "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5";
+  const issued = await issue(sdk, {
+    recipient: {
+      mode: "policy",
+      recipientXonly: sellerCustodianXonly,
+    },
+    template,
+    params: { lockDistanceBlocks: 6 },
+    amountSat: 6000,
+    assetId: "unsupported-asset-alias",
+    propagationMode: "required",
+  });
+
+  const prepared = await prepareTransfer(sdk, {
+    currentArtifact: issued.compiled.artifact,
+    template,
+    currentStateValue: issued.state,
+    nextReceiver: {
+      mode: "policy",
+      recipientXonly: approvedBuyerCustodianXonly,
+    },
+    nextAmountSat: 6000,
+    nextParams: { lockDistanceBlocks: 6 },
+    nextRawOutput: RAW_OUTPUT_V1,
+    nextOutputForm: {
+      assetForm: "confidential",
+      amountForm: "confidential",
+      nonceForm: "confidential",
+      rangeProofForm: "non-empty",
+    },
+    outputBindingMode: "descriptor-bound",
+  });
+  const verified = await verifyTransfer(sdk, {
+    template,
+    currentArtifact: issued.compiled.artifact,
+    currentStateValue: issued.state,
+    transferDescriptorValue: prepared.transferDescriptor,
+    nextStateValue: prepared.nextState ?? undefined,
+  });
+  const evidence = await exportEvidence(sdk, {
+    artifact: issued.compiled.artifact,
+    template,
+    stateValue: issued.state,
+    transferDescriptorValue: prepared.transferDescriptor,
+  });
+
+  assert.equal(prepared.transferDescriptor.propagationMode, "required");
+  assert.equal(prepared.nextState?.recipient, approvedBuyerCustodianXonly);
+  assert.equal(verified.verificationReport.enforcement, "direct-hop");
+  assert.equal(verified.verificationReport.outputBinding?.mode, "descriptor-bound");
+  assert.equal(verified.verificationReport.outputBinding?.supportedForm, "raw-output-v1");
+  assert.equal(verified.verificationReport.outputBinding?.reasonCode, "OK_RAW_OUTPUT");
+  assert.equal(evidence.trustSummary.bindingMode, "descriptor-bound");
 });
 
 test("required direct path rejects plain exit", async (t) => {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
+import { buildConsumerNpmEnv, installPackedSdkForConsumer } from "./consumerInstall.mjs";
 import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -26,20 +27,7 @@ async function main() {
   });
   const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
   const workDir = await mkdtemp(path.join(tmpdir(), "simplicity-fund-consumer-"));
-  const npmEnv = {
-    ...process.env,
-    NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE ?? path.join(workDir, ".npm-cache"),
-  };
-
-  const { stdout: packedName } = await execFileAsync("npm", ["pack", "--pack-destination", workDir], {
-    cwd: repoRoot,
-    env: npmEnv,
-  });
-  const tarballName = packedName.trim().split("\n").filter(Boolean).at(-1);
-  if (!tarballName) {
-    throw new Error("npm pack did not return a tarball name");
-  }
-  const tarballPath = path.join(workDir, tarballName);
+  const npmEnv = buildConsumerNpmEnv(workDir);
 
   await writeFile(
     path.join(workDir, "package.json"),
@@ -51,10 +39,7 @@ async function main() {
     "utf8",
   );
 
-  await execFileAsync("npm", ["install", tarballPath], {
-    cwd: workDir,
-    env: npmEnv,
-  });
+  await installPackedSdkForConsumer({ repoRoot, workDir, npmEnv });
 
   const smokePath = path.join(workDir, "consumer-smoke.mjs");
   await writeFile(
@@ -212,6 +197,11 @@ const afterSecond = await sdk.funds.reconcilePosition({
   signer: { type: "schnorrPrivkeyHex", privkeyHex: MANAGER_PRIVKEY },
   signedAt: "2028-03-18T00:00:00Z",
 });
+const receiptChain = [
+  signedInitialReceipt.positionReceiptEnvelope,
+  afterFirst.reconciledReceiptEnvelope,
+  afterSecond.reconciledReceiptEnvelope,
+];
 
 const binding = sdk.outputBinding.evaluateSupport({
   assetId: prepared.capitalCallValue.currencyAssetId,
@@ -228,6 +218,8 @@ const binding = sdk.outputBinding.evaluateSupport({
 const closing = await sdk.funds.prepareClosing({
   definitionValue,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+  previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  positionReceiptChainValues: receiptChain,
   closingId: "CLOSE-001",
   finalDistributionHashes: [
     summarizeDistributionDescriptor(firstDistribution.distributionValue).hash,
@@ -238,10 +230,18 @@ const closing = await sdk.funds.prepareClosing({
 const verifiedFinalReceipt = await sdk.funds.verifyPositionReceipt({
   definitionValue,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+  previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  positionReceiptChainValues: receiptChain,
+});
+const verifiedReceiptChain = await sdk.funds.verifyPositionReceiptChain({
+  definitionValue,
+  positionReceiptChainValues: receiptChain,
 });
 const verifiedClosing = await sdk.funds.verifyClosing({
   definitionValue,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+  previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  positionReceiptChainValues: receiptChain,
   closingValue: closing.closingValue,
 });
 
@@ -250,6 +250,8 @@ const finality = await sdk.funds.exportFinalityPayload({
   definitionValue,
   capitalCallValue: claimedCapitalCall,
   positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+  previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+  positionReceiptChainValues: receiptChain,
   distributionValues: [
     firstDistribution.distributionValue,
     secondDistribution.distributionValue,
@@ -262,6 +264,7 @@ const finality = await sdk.funds.exportFinalityPayload({
       cutoffMode: "rollover-window",
     },
     receiptTrust: verifiedFinalReceipt.report.receiptTrust,
+    receiptChainTrust: verifiedFinalReceipt.report.receiptChainTrust,
     closingTrust: verifiedClosing.report.closingTrust,
   },
 });
@@ -275,6 +278,7 @@ console.log(JSON.stringify({
   refundOnlyContractAddress: prepared.refundOnlyCompiled.deployment().contractAddress,
   finalReceiptSequence: afterSecond.reconciledReceiptValue.sequence,
   finalEnvelopeHash: afterSecond.reconciledReceiptEnvelopeSummary.hash,
+  fullChainVerified: verifiedReceiptChain.report.receiptChainTrust?.fullChainVerified ?? false,
   bindingReasonCode: binding.reasonCode,
   bindingSupportedForm: binding.supportedForm,
   closingHash: closing.closingHash,

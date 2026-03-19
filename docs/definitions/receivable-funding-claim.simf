@@ -1,8 +1,9 @@
 /*
- * LP capital call refund-only contract.
+ * Receivable funding claim contract.
  *
- * This artifact is reached only after the open capital call is explicitly
- * rolled over post-cutoff. Once in this state, only the LP refund path remains.
+ * After a receivable moves into FUNDED state off-chain, the funder/SPV funds
+ * this one-shot claim contract and the committed claimant releases the payout
+ * to the originator-side destination. Runtime output binding is optional.
  */
 fn not(bit: bool) -> bool {
     <u1>::into(jet::complement_1(<bool>::into(bit)))
@@ -45,23 +46,13 @@ fn require_output_shape(expected_output_hash: u256, expected_output_script_hash:
     }
 }
 
-fn refund_path(
-    expected_output_hash: u256,
-    expected_output_script_hash: u256,
-    binding_mode: u8,
-    lp_signature: Signature
-) {
-    require_output_shape(expected_output_hash, expected_output_script_hash, binding_mode);
-    let lp: Pubkey = 0x{{LP_XONLY}};
-    jet::bip_0340_verify((lp, jet::sig_all_hash()), lp_signature)
-}
-
 fn main() {
     require_definition_anchor();
     require_state_anchor();
     let expected_output_hash: u256 = witness::EXPECTED_PAYOUT_OUTPUT_HASH;
     let expected_output_script_hash: u256 = witness::EXPECTED_PAYOUT_OUTPUT_SCRIPT_HASH;
     let binding_mode: u8 = witness::OUTPUT_BINDING_MODE;
-    let signer_signature: Signature = witness::SIGNER_SIGNATURE;
-    refund_path(expected_output_hash, expected_output_script_hash, binding_mode, signer_signature)
+    require_output_shape(expected_output_hash, expected_output_script_hash, binding_mode);
+    let claimant: Pubkey = 0x{{CLAIMANT_XONLY}};
+    jet::bip_0340_verify((claimant, jet::sig_all_hash()), witness::SIGNER_SIGNATURE)
 }

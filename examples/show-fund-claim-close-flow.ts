@@ -94,10 +94,17 @@ async function main() {
     signer: { type: "schnorrPrivkeyHex", privkeyHex: managerPrivkey },
     signedAt: "2028-03-18T00:00:00Z",
   });
+  const receiptChain = [
+    signedInitialReceipt.positionReceiptEnvelope,
+    afterFirst.reconciledReceiptEnvelope,
+    afterSecond.reconciledReceiptEnvelope,
+  ];
 
   const closing = await sdk.funds.prepareClosing({
     definitionValue,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
     closingId: "CLOSE-001",
     finalDistributionHashes: [
       summarizeDistributionDescriptor(firstDistribution.distributionValue).hash,
@@ -108,10 +115,18 @@ async function main() {
   const verifiedFinalReceipt = await sdk.funds.verifyPositionReceipt({
     definitionValue,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
+  });
+  const verifiedReceiptChain = await sdk.funds.verifyPositionReceiptChain({
+    definitionValue,
+    positionReceiptChainValues: receiptChain,
   });
   const verifiedClosing = await sdk.funds.verifyClosing({
     definitionValue,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
     closingValue: closing.closingValue,
   });
 
@@ -120,6 +135,8 @@ async function main() {
     definitionValue,
     capitalCallValue: claimedCapitalCall,
     positionReceiptValue: afterSecond.reconciledReceiptEnvelope,
+    previousPositionReceiptValue: afterFirst.reconciledReceiptEnvelope,
+    positionReceiptChainValues: receiptChain,
     distributionValues: [
       firstDistribution.distributionValue,
       secondDistribution.distributionValue,
@@ -130,10 +147,11 @@ async function main() {
       capitalCallTrust: {
         capitalCallStage: "claimed",
         cutoffMode: "rollover-window",
-      },
-      receiptTrust: verifiedFinalReceipt.report.receiptTrust,
-      closingTrust: verifiedClosing.report.closingTrust,
     },
+    receiptTrust: verifiedFinalReceipt.report.receiptTrust,
+    receiptChainTrust: verifiedFinalReceipt.report.receiptChainTrust,
+    closingTrust: verifiedClosing.report.closingTrust,
+  },
   });
 
   console.log(JSON.stringify({
@@ -148,6 +166,7 @@ async function main() {
     finalSequence: afterSecond.reconciledReceiptValue.sequence,
     finalReceiptHash: afterSecond.reconciledReceiptSummary.hash,
     finalEnvelopeHash: afterSecond.reconciledReceiptEnvelopeSummary.hash,
+    fullChainVerified: verifiedReceiptChain.report.receiptChainTrust?.fullChainVerified,
     closingHash: closing.closingHash,
     finalityPositionReceiptEnvelopeHash: finality.positionReceiptEnvelopeHash,
     finalityDistributionHashes: finality.distributionHashes,
