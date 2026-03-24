@@ -4,6 +4,7 @@ import { sha256HexUtf8, stableStringify } from "../core/summary";
 import {
   ReceivableClosingDescriptor,
   ReceivableClosingReason,
+  ReceivableClaimAuthoritySource,
   ReceivableClaimTrust,
   ReceivableDefinition,
   ReceivableFundingClaimDescriptor,
@@ -163,6 +164,13 @@ export function validateReceivableDefinition(value: unknown): ReceivableDefiniti
     "RECEIVABLE_CONTROLLER_INVALID",
     "controllerXonly must be a 32-byte xonly public key",
   );
+  if (definition.originatorClaimantXonly !== undefined) {
+    assertXonlyPubkey(
+      definition.originatorClaimantXonly,
+      "RECEIVABLE_ORIGINATOR_CLAIMANT_INVALID",
+      "originatorClaimantXonly must be a 32-byte xonly public key",
+    );
+  }
   return {
     receivableId: definition.receivableId,
     originatorEntityId: definition.originatorEntityId,
@@ -171,6 +179,7 @@ export function validateReceivableDefinition(value: unknown): ReceivableDefiniti
     faceValue: definition.faceValue,
     dueDate: definition.dueDate,
     controllerXonly: definition.controllerXonly,
+    ...(definition.originatorClaimantXonly ? { originatorClaimantXonly: definition.originatorClaimantXonly } : {}),
   };
 }
 
@@ -195,6 +204,13 @@ export function validateReceivableState(value: unknown): ReceivableState {
     "RECEIVABLE_CONTROLLER_INVALID",
     "controllerXonly must be a 32-byte xonly public key",
   );
+  if (state.holderClaimantXonly !== undefined) {
+    assertXonlyPubkey(
+      state.holderClaimantXonly,
+      "RECEIVABLE_HOLDER_CLAIMANT_INVALID",
+      "holderClaimantXonly must be a 32-byte xonly public key",
+    );
+  }
   assertFinitePositiveNumber(
     state?.faceValue,
     "RECEIVABLE_FACE_VALUE_INVALID",
@@ -313,6 +329,7 @@ export function validateReceivableState(value: unknown): ReceivableState {
     holderEntityId: state.holderEntityId,
     currencyAssetId: state.currencyAssetId,
     controllerXonly: state.controllerXonly,
+    ...(state.holderClaimantXonly ? { holderClaimantXonly: state.holderClaimantXonly } : {}),
     faceValue: state.faceValue,
     outstandingAmount: state.outstandingAmount,
     repaidAmount: state.repaidAmount,
@@ -558,6 +575,7 @@ export function buildFundedReceivableState(input: {
   previous: ReceivableState;
   stateId: string;
   holderEntityId: string;
+  holderClaimantXonly?: string;
   fundedAt: string;
 }): ReceivableState {
   const previous = validateReceivableState(input.previous);
@@ -570,6 +588,10 @@ export function buildFundedReceivableState(input: {
     ...previous,
     stateId: input.stateId,
     holderEntityId: input.holderEntityId,
+    holderClaimantXonly:
+      input.holderEntityId === previous.holderEntityId
+        ? previous.holderClaimantXonly ?? previous.controllerXonly
+        : input.holderClaimantXonly ?? previous.controllerXonly,
     status: "FUNDED",
     createdAt: input.fundedAt,
     previousStateHash: summarizeReceivableState(previous).hash,
@@ -674,6 +696,7 @@ export function buildReceivableClosingDescriptor(input: {
 
 export function buildReceivableFundingClaimDescriptor(input: {
   claimId: string;
+  definition?: ReceivableDefinition;
   currentState: ReceivableState;
   payerEntityId?: string;
   payeeEntityId?: string;
@@ -681,6 +704,7 @@ export function buildReceivableFundingClaimDescriptor(input: {
   amountSat?: number;
   eventTimestamp?: string;
 }): ReceivableFundingClaimDescriptor {
+  const definition = input.definition ? validateReceivableDefinition(input.definition) : undefined;
   const currentState = validateReceivableState(input.currentState);
   const currentStateHash = summarizeReceivableState(currentState).hash;
   return validateReceivableFundingClaimDescriptor({
@@ -691,7 +715,7 @@ export function buildReceivableFundingClaimDescriptor(input: {
     currentStatus: currentState.status,
     payerEntityId: input.payerEntityId ?? currentState.holderEntityId,
     payeeEntityId: input.payeeEntityId ?? currentState.originatorEntityId,
-    claimantXonly: input.claimantXonly ?? currentState.controllerXonly,
+    claimantXonly: input.claimantXonly ?? definition?.originatorClaimantXonly ?? currentState.controllerXonly,
     currencyAssetId: currentState.currencyAssetId,
     amountSat: input.amountSat ?? currentState.lastTransition?.amount ?? currentState.outstandingAmount,
     eventTimestamp: input.eventTimestamp ?? currentState.lastTransition?.at ?? currentState.createdAt,
@@ -717,19 +741,53 @@ export function buildReceivableRepaymentClaimDescriptor(input: {
     currentStatus: currentState.status,
     payerEntityId: input.payerEntityId ?? currentState.debtorEntityId,
     payeeEntityId: input.payeeEntityId ?? currentState.holderEntityId,
-    claimantXonly: input.claimantXonly ?? currentState.controllerXonly,
+    claimantXonly: input.claimantXonly ?? currentState.holderClaimantXonly ?? currentState.controllerXonly,
     currencyAssetId: currentState.currencyAssetId,
     amountSat: input.amountSat ?? currentState.lastTransition?.amount ?? currentState.repaidAmount,
     eventTimestamp: input.eventTimestamp ?? currentState.lastTransition?.at ?? currentState.createdAt,
   });
 }
 
+function resolveFundingClaimAuthority(
+  definition: ReceivableDefinition,
+  currentState: ReceivableState,
+): { claimantXonly: string; authoritySource: ReceivableClaimAuthoritySource } {
+  if (definition.originatorClaimantXonly) {
+    return {
+      claimantXonly: definition.originatorClaimantXonly,
+      authoritySource: "originator-claimant",
+    };
+  }
+  return {
+    claimantXonly: currentState.controllerXonly,
+    authoritySource: "controller-fallback",
+  };
+}
+
+function resolveRepaymentClaimAuthority(
+  currentState: ReceivableState,
+): { claimantXonly: string; authoritySource: ReceivableClaimAuthoritySource } {
+  if (currentState.holderClaimantXonly) {
+    return {
+      claimantXonly: currentState.holderClaimantXonly,
+      authoritySource: "holder-claimant",
+    };
+  }
+  return {
+    claimantXonly: currentState.controllerXonly,
+    authoritySource: "controller-fallback",
+  };
+}
+
 export function validateReceivableFundingClaimAgainstState(input: {
+  definition: ReceivableDefinition;
   currentState: ReceivableState;
   claim: ReceivableFundingClaimDescriptor;
 }): Omit<ReceivableClaimTrust, "generated" | "bindingMode" | "requestedMode" | "supportedForm" | "reasonCode" | "nextReceiverRuntimeCommitted" | "nextOutputHashRuntimeBound" | "nextOutputScriptRuntimeBound" | "amountRuntimeBound" | "autoDerived" | "fallbackReason" | "bindingInputs" | "claimantXonlyCommitted"> {
+  const definition = validateReceivableDefinition(input.definition);
   const currentState = validateReceivableState(input.currentState);
   const claim = validateReceivableFundingClaimDescriptor(input.claim);
+  const authority = resolveFundingClaimAuthority(definition, currentState);
   const currentStateHash = summarizeReceivableState(currentState).hash;
   const stateStatusEligible = currentState.status === "FUNDED";
   const receivableIdMatch = claim.receivableId === currentState.receivableId;
@@ -737,13 +795,15 @@ export function validateReceivableFundingClaimAgainstState(input: {
   const currentStatusMatch = claim.currentStatus === currentState.status;
   const payerEntityMatch = claim.payerEntityId === currentState.holderEntityId;
   const payeeEntityMatch = claim.payeeEntityId === currentState.originatorEntityId;
-  const claimantXonlyMatch = claim.claimantXonly === currentState.controllerXonly;
+  const claimantXonlyMatch = claim.claimantXonly === authority.claimantXonly;
   const currencyAssetMatch = claim.currencyAssetId === currentState.currencyAssetId;
   const amountMatch = currentState.lastTransition?.type === "FUND" && claim.amountSat === currentState.lastTransition.amount;
   const eventTimestampMatch =
     currentState.lastTransition?.type === "FUND" && claim.eventTimestamp === currentState.lastTransition.at;
   return {
     claimKind: "FUNDING",
+    claimantAuthoritySource: authority.authoritySource,
+    roleSeparatedAuthorization: authority.authoritySource !== "controller-fallback",
     stateStatusEligible,
     receivableIdMatch,
     currentStateHashMatch,
@@ -774,6 +834,7 @@ export function validateReceivableRepaymentClaimAgainstState(input: {
 }): Omit<ReceivableClaimTrust, "generated" | "bindingMode" | "requestedMode" | "supportedForm" | "reasonCode" | "nextReceiverRuntimeCommitted" | "nextOutputHashRuntimeBound" | "nextOutputScriptRuntimeBound" | "amountRuntimeBound" | "autoDerived" | "fallbackReason" | "bindingInputs" | "claimantXonlyCommitted"> {
   const currentState = validateReceivableState(input.currentState);
   const claim = validateReceivableRepaymentClaimDescriptor(input.claim);
+  const authority = resolveRepaymentClaimAuthority(currentState);
   const currentStateHash = summarizeReceivableState(currentState).hash;
   const stateStatusEligible = currentState.status === "PARTIALLY_REPAID" || currentState.status === "REPAID";
   const receivableIdMatch = claim.receivableId === currentState.receivableId;
@@ -781,13 +842,15 @@ export function validateReceivableRepaymentClaimAgainstState(input: {
   const currentStatusMatch = claim.currentStatus === currentState.status;
   const payerEntityMatch = claim.payerEntityId === currentState.debtorEntityId;
   const payeeEntityMatch = claim.payeeEntityId === currentState.holderEntityId;
-  const claimantXonlyMatch = claim.claimantXonly === currentState.controllerXonly;
+  const claimantXonlyMatch = claim.claimantXonly === authority.claimantXonly;
   const currencyAssetMatch = claim.currencyAssetId === currentState.currencyAssetId;
   const amountMatch = currentState.lastTransition?.type === "REPAY" && claim.amountSat === currentState.lastTransition.amount;
   const eventTimestampMatch =
     currentState.lastTransition?.type === "REPAY" && claim.eventTimestamp === currentState.lastTransition.at;
   return {
     claimKind: "REPAYMENT",
+    claimantAuthoritySource: authority.authoritySource,
+    roleSeparatedAuthorization: authority.authoritySource !== "controller-fallback",
     stateStatusEligible,
     receivableIdMatch,
     currentStateHashMatch,

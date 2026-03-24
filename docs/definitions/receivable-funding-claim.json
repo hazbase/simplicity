@@ -2,7 +2,7 @@
   "claimId": "REC-001-FUNDING-CLAIM",
   "claimKind": "FUNDING",
   "receivableId": "REC-001",
-  "currentStateHash": "7a61cc669844f3fd96165c99e3ca42cfae916e824dec4d60e51d56ef574e041a",
+  "currentStateHash": "13147d187ce3200d7044d73d7b86b93140c43f29dd048f919569f5eb7b47c562",
   "currentStatus": "FUNDED",
   "payerEntityId": "fund-1",
   "payeeEntityId": "originator-1",

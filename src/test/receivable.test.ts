@@ -58,6 +58,10 @@ const TEST_CONFIG = {
   },
 };
 
+const ORIGINATOR_CLAIMANT_XONLY = "11".repeat(32);
+const HOLDER_CLAIMANT_XONLY = "22".repeat(32);
+const CONTROLLER_XONLY = "33".repeat(32);
+
 function makeDefinition() {
   return validateReceivableDefinition({
     receivableId: "REC-001",
@@ -66,7 +70,8 @@ function makeDefinition() {
     currencyAssetId: "bitcoin",
     faceValue: 10000,
     dueDate: "2027-12-31T00:00:00Z",
-    controllerXonly: "11".repeat(32),
+    controllerXonly: CONTROLLER_XONLY,
+    originatorClaimantXonly: ORIGINATOR_CLAIMANT_XONLY,
   });
 }
 
@@ -78,7 +83,8 @@ function makeOriginatedState() {
     debtorEntityId: "debtor-1",
     holderEntityId: "originator-1",
     currencyAssetId: "bitcoin",
-    controllerXonly: "11".repeat(32),
+    controllerXonly: CONTROLLER_XONLY,
+    holderClaimantXonly: ORIGINATOR_CLAIMANT_XONLY,
     faceValue: 10000,
     outstandingAmount: 10000,
     repaidAmount: 0,
@@ -100,7 +106,8 @@ function makeFundedState(previousHash: string) {
     debtorEntityId: "debtor-1",
     holderEntityId: "fund-1",
     currencyAssetId: "bitcoin",
-    controllerXonly: "11".repeat(32),
+    controllerXonly: CONTROLLER_XONLY,
+    holderClaimantXonly: HOLDER_CLAIMANT_XONLY,
     faceValue: 10000,
     outstandingAmount: 10000,
     repaidAmount: 0,
@@ -115,7 +122,7 @@ function makeFundedState(previousHash: string) {
   });
 }
 
-function makeRepaidState(previousHash: string) {
+function makePartialRepaidState(previousHash: string) {
   return validateReceivableState({
     stateId: "REC-001-S2",
     receivableId: "REC-001",
@@ -123,17 +130,42 @@ function makeRepaidState(previousHash: string) {
     debtorEntityId: "debtor-1",
     holderEntityId: "fund-1",
     currencyAssetId: "bitcoin",
-    controllerXonly: "11".repeat(32),
+    controllerXonly: CONTROLLER_XONLY,
+    holderClaimantXonly: HOLDER_CLAIMANT_XONLY,
     faceValue: 10000,
-    outstandingAmount: 0,
-    repaidAmount: 10000,
-    status: "REPAID",
+    outstandingAmount: 6000,
+    repaidAmount: 4000,
+    status: "PARTIALLY_REPAID",
     createdAt: "2027-02-01T00:00:00Z",
     previousStateHash: previousHash,
     lastTransition: {
       type: "REPAY",
-      amount: 10000,
+      amount: 4000,
       at: "2027-02-01T00:00:00Z",
+    },
+  });
+}
+
+function makeRepaidState(previousHash: string) {
+  return validateReceivableState({
+    stateId: "REC-001-S3",
+    receivableId: "REC-001",
+    originatorEntityId: "originator-1",
+    debtorEntityId: "debtor-1",
+    holderEntityId: "fund-1",
+    currencyAssetId: "bitcoin",
+    controllerXonly: CONTROLLER_XONLY,
+    holderClaimantXonly: HOLDER_CLAIMANT_XONLY,
+    faceValue: 10000,
+    outstandingAmount: 0,
+    repaidAmount: 10000,
+    status: "REPAID",
+    createdAt: "2027-03-01T00:00:00Z",
+    previousStateHash: previousHash,
+    lastTransition: {
+      type: "REPAY",
+      amount: 6000,
+      at: "2027-03-01T00:00:00Z",
     },
   });
 }
@@ -151,9 +183,10 @@ test("valid ReceivableDefinition and ReceivableState pass cross-checks", () => {
 test("verifyReceivableStateHistory validates contiguous receivable lineage", () => {
   const originated = makeOriginatedState();
   const funded = makeFundedState(summarizeReceivableState(originated).hash);
-  const repaid = makeRepaidState(summarizeReceivableState(funded).hash);
+  const partial = makePartialRepaidState(summarizeReceivableState(funded).hash);
+  const repaid = makeRepaidState(summarizeReceivableState(partial).hash);
   const checks = verifyReceivableStateHistory({
-    history: [originated, funded, repaid],
+    history: [originated, funded, partial, repaid],
   });
   assert.equal(checks.startsAtGenesis, true);
   assert.equal(checks.allPreviousStateHashMatch, true);
@@ -261,9 +294,11 @@ test("receivable funding claim helpers build, prepare, and verify a runtime clai
   const funded = makeFundedState(summarizeReceivableState(originated).hash);
   const claim = buildReceivableFundingClaimDescriptor({
     claimId: "REC-001-FUNDING-CLAIM",
+    definition,
     currentState: funded,
   });
   const checks = validateReceivableFundingClaimAgainstState({
+    definition,
     currentState: funded,
     claim,
   });
@@ -282,45 +317,114 @@ test("receivable funding claim helpers build, prepare, and verify a runtime clai
   });
 
   assert.equal(validateReceivableFundingClaimDescriptor(claim).claimKind, "FUNDING");
+  assert.equal(claim.claimantXonly, ORIGINATOR_CLAIMANT_XONLY);
+  assert.equal(checks.claimantAuthoritySource, "originator-claimant");
+  assert.equal(checks.roleSeparatedAuthorization, true);
   assert.equal(summarizeReceivableFundingClaimDescriptor(claim).hash.length, 64);
   assert.equal(checks.fullClaimVerified, true);
   assert.equal(prepared.report.fundingClaimTrust?.fullClaimVerified, true);
   assert.equal(verified.verified, true);
 });
 
-test("receivable repayment claim helpers build, prepare, and verify a runtime claim descriptor", async () => {
+test("receivable repayment claim helpers build, prepare, and verify partial and final runtime claim descriptors", async () => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   const definition = makeDefinition();
   const originated = makeOriginatedState();
   const funded = makeFundedState(summarizeReceivableState(originated).hash);
-  const repaid = makeRepaidState(summarizeReceivableState(funded).hash);
-  const claim = buildReceivableRepaymentClaimDescriptor({
-    claimId: "REC-001-REPAYMENT-CLAIM",
+  const partial = makePartialRepaidState(summarizeReceivableState(funded).hash);
+  const repaid = makeRepaidState(summarizeReceivableState(partial).hash);
+  const partialClaim = buildReceivableRepaymentClaimDescriptor({
+    claimId: "REC-001-REPAYMENT-CLAIM-PARTIAL",
+    currentState: partial,
+  });
+  const finalClaim = buildReceivableRepaymentClaimDescriptor({
+    claimId: "REC-001-REPAYMENT-CLAIM-FINAL",
     currentState: repaid,
   });
-  const checks = validateReceivableRepaymentClaimAgainstState({
+  const partialChecks = validateReceivableRepaymentClaimAgainstState({
+    currentState: partial,
+    claim: partialClaim,
+  });
+  const finalChecks = validateReceivableRepaymentClaimAgainstState({
     currentState: repaid,
-    claim,
+    claim: finalClaim,
   });
-  const prepared = await prepareRepaymentClaim(sdk, {
+  const partialPrepared = await prepareRepaymentClaim(sdk, {
+    definitionValue: definition,
+    currentStateValue: partial,
+    stateHistoryValues: [originated, funded, partial],
+    repaymentClaimValue: partialClaim,
+  });
+  const partialVerified = await verifyRepaymentClaim(sdk, {
+    artifact: partialPrepared.compiled.artifact,
+    definitionValue: definition,
+    currentStateValue: partial,
+    stateHistoryValues: [originated, funded, partial],
+    repaymentClaimValue: partialClaim,
+  });
+  const finalPrepared = await prepareRepaymentClaim(sdk, {
     definitionValue: definition,
     currentStateValue: repaid,
-    stateHistoryValues: [originated, funded, repaid],
-    repaymentClaimValue: claim,
+    stateHistoryValues: [originated, funded, partial, repaid],
+    repaymentClaimValue: finalClaim,
   });
-  const verified = await verifyRepaymentClaim(sdk, {
-    artifact: prepared.compiled.artifact,
+  const finalVerified = await verifyRepaymentClaim(sdk, {
+    artifact: finalPrepared.compiled.artifact,
     definitionValue: definition,
     currentStateValue: repaid,
-    stateHistoryValues: [originated, funded, repaid],
-    repaymentClaimValue: claim,
+    stateHistoryValues: [originated, funded, partial, repaid],
+    repaymentClaimValue: finalClaim,
   });
 
-  assert.equal(validateReceivableRepaymentClaimDescriptor(claim).claimKind, "REPAYMENT");
-  assert.equal(summarizeReceivableRepaymentClaimDescriptor(claim).hash.length, 64);
-  assert.equal(checks.fullClaimVerified, true);
-  assert.equal(prepared.report.repaymentClaimTrust?.fullClaimVerified, true);
-  assert.equal(verified.verified, true);
+  assert.equal(validateReceivableRepaymentClaimDescriptor(partialClaim).claimKind, "REPAYMENT");
+  assert.equal(validateReceivableRepaymentClaimDescriptor(finalClaim).claimKind, "REPAYMENT");
+  assert.equal(partialClaim.amountSat, 4000);
+  assert.equal(finalClaim.amountSat, 6000);
+  assert.equal(partialClaim.claimantXonly, HOLDER_CLAIMANT_XONLY);
+  assert.equal(finalClaim.claimantXonly, HOLDER_CLAIMANT_XONLY);
+  assert.equal(partialChecks.claimantAuthoritySource, "holder-claimant");
+  assert.equal(finalChecks.claimantAuthoritySource, "holder-claimant");
+  assert.equal(partialChecks.roleSeparatedAuthorization, true);
+  assert.equal(finalChecks.roleSeparatedAuthorization, true);
+  assert.equal(summarizeReceivableRepaymentClaimDescriptor(partialClaim).hash.length, 64);
+  assert.equal(summarizeReceivableRepaymentClaimDescriptor(finalClaim).hash.length, 64);
+  assert.equal(partialChecks.fullClaimVerified, true);
+  assert.equal(finalChecks.fullClaimVerified, true);
+  assert.equal(partialPrepared.report.repaymentClaimTrust?.fullClaimVerified, true);
+  assert.equal(finalPrepared.report.repaymentClaimTrust?.fullClaimVerified, true);
+  assert.equal(partialVerified.verified, true);
+  assert.equal(finalVerified.verified, true);
+});
+
+test("receivable claim verification rejects controller-only claimant when role keys are configured", () => {
+  const definition = makeDefinition();
+  const originated = makeOriginatedState();
+  const funded = makeFundedState(summarizeReceivableState(originated).hash);
+  const repaid = makeRepaidState(summarizeReceivableState(funded).hash);
+
+  const fundingChecks = validateReceivableFundingClaimAgainstState({
+    definition,
+    currentState: funded,
+    claim: buildReceivableFundingClaimDescriptor({
+      claimId: "REC-001-FUNDING-CLAIM-LEGACY",
+      definition,
+      currentState: funded,
+      claimantXonly: CONTROLLER_XONLY,
+    }),
+  });
+  const repaymentChecks = validateReceivableRepaymentClaimAgainstState({
+    currentState: repaid,
+    claim: buildReceivableRepaymentClaimDescriptor({
+      claimId: "REC-001-REPAYMENT-CLAIM-LEGACY",
+      currentState: repaid,
+      claimantXonly: CONTROLLER_XONLY,
+    }),
+  });
+
+  assert.equal(fundingChecks.claimantXonlyMatch, false);
+  assert.equal(fundingChecks.fullClaimVerified, false);
+  assert.equal(repaymentChecks.claimantXonlyMatch, false);
+  assert.equal(repaymentChecks.fullClaimVerified, false);
 });
 
 test("receivable write-off helper builds a DEFAULTED state", async () => {
@@ -356,7 +460,8 @@ test("receivable closing builder and verifier require a terminal state", async (
   const definition = makeDefinition();
   const originated = makeOriginatedState();
   const funded = makeFundedState(summarizeReceivableState(originated).hash);
-  const repaid = makeRepaidState(summarizeReceivableState(funded).hash);
+  const partial = makePartialRepaidState(summarizeReceivableState(funded).hash);
+  const repaid = makeRepaidState(summarizeReceivableState(partial).hash);
   const closing = buildReceivableClosingDescriptor({
     closingId: "REC-CLOSE-001",
     latestState: repaid,
@@ -365,18 +470,18 @@ test("receivable closing builder and verifier require a terminal state", async (
   const closingChecks = validateReceivableClosingAgainstState({
     latestState: repaid,
     closing,
-    history: [originated, funded, repaid],
+    history: [originated, funded, partial, repaid],
   });
   const prepared = await prepareClosing(sdk, {
     definitionValue: definition,
     latestStateValue: repaid,
-    stateHistoryValues: [originated, funded, repaid],
+    stateHistoryValues: [originated, funded, partial, repaid],
     closingValue: closing,
   });
   const verified = await verifyClosing(sdk, {
     definitionValue: definition,
     latestStateValue: repaid,
-    stateHistoryValues: [originated, funded, repaid],
+    stateHistoryValues: [originated, funded, partial, repaid],
     closingValue: closing,
   });
 
@@ -391,7 +496,8 @@ test("receivable evidence and finality export carry shared lineage trust summary
   const definition = makeDefinition();
   const originated = makeOriginatedState();
   const funded = makeFundedState(summarizeReceivableState(originated).hash);
-  const repaid = makeRepaidState(summarizeReceivableState(funded).hash);
+  const partial = makePartialRepaidState(summarizeReceivableState(funded).hash);
+  const repaid = makeRepaidState(summarizeReceivableState(partial).hash);
   const closing = buildReceivableClosingDescriptor({
     closingId: "REC-CLOSE-001",
     latestState: repaid,
@@ -400,30 +506,32 @@ test("receivable evidence and finality export carry shared lineage trust summary
 
   const verification = await verifyStateHistory(sdk, {
     definitionValue: definition,
-    stateHistoryValues: [originated, funded, repaid],
+    stateHistoryValues: [originated, funded, partial, repaid],
   });
   const evidence = await exportEvidence(sdk, {
     definitionValue: definition,
-    stateHistoryValues: [originated, funded, repaid],
+    stateHistoryValues: [originated, funded, partial, repaid],
     fundingClaimValue: buildReceivableFundingClaimDescriptor({
       claimId: "REC-001-FUNDING-CLAIM",
+      definition,
       currentState: funded,
     }),
     repaymentClaimValue: buildReceivableRepaymentClaimDescriptor({
-      claimId: "REC-001-REPAYMENT-CLAIM",
+      claimId: "REC-001-REPAYMENT-CLAIM-FINAL",
       currentState: repaid,
     }),
     closingValue: closing,
   });
   const finality = await exportFinalityPayload(sdk, {
     definitionValue: definition,
-    stateHistoryValues: [originated, funded, repaid],
+    stateHistoryValues: [originated, funded, partial, repaid],
     fundingClaimValue: buildReceivableFundingClaimDescriptor({
       claimId: "REC-001-FUNDING-CLAIM",
+      definition,
       currentState: funded,
     }),
     repaymentClaimValue: buildReceivableRepaymentClaimDescriptor({
-      claimId: "REC-001-REPAYMENT-CLAIM",
+      claimId: "REC-001-REPAYMENT-CLAIM-FINAL",
       currentState: repaid,
     }),
     closingValue: closing,

@@ -38,7 +38,7 @@ function createLocalPolicyClient() {
 
 async function main() {
   try {
-    await execFileAsync(env("SIMC_PATH", "simc"), ["--version"]);
+    await execFileAsync(env("SIMC_PATH", "simc"), ["--help"]);
     await execFileAsync(env("HAL_SIMPLICITY_PATH", "hal-simplicity"), ["--version"]);
   } catch {
     console.log(JSON.stringify({

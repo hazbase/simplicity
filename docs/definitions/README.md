@@ -19,8 +19,10 @@ Files:
 - `receivable-definition.json`: sample receivable definition document
 - `receivable-state-originated.json`: sample genesis receivable state
 - `receivable-state-funded.json`: sample funded receivable state linked from genesis
-- `receivable-state-repaid.json`: sample repaid receivable state linked from funded
+- `receivable-state-partially-repaid.json`: sample partially repaid state linked from funded
+- `receivable-state-repaid.json`: sample repaid state linked from the partially repaid state
 - `receivable-funding-claim.json`: sample funding-claim descriptor for the funded state
+- `receivable-repayment-claim-partial.json`: sample repayment-claim descriptor for the partially repaid state
 - `receivable-repayment-claim.json`: sample repayment-claim descriptor for the repaid state
 - `receivable-funding-claim.simf`: runtime claim contract for funding payout, with optional payout output binding
 - `receivable-repayment-claim.simf`: runtime claim contract for repayment payout, with optional payout output binding
@@ -60,7 +62,11 @@ That keeps new domains aligned with the same “latest state + lineage + finalit
 
 ## Receivable Flow
 
-The receivable layer now has a repayment-first runtime path. It still shows how the shared lineage/reporting model extends into the next permissioned RWA case, but it no longer stops at pure SDK lineage helpers.
+The receivable layer now has a repayment-first runtime path with a public partial-repayment story. It still shows how the shared lineage/reporting model extends into the next permissioned RWA case, but it no longer stops at pure SDK lineage helpers.
+
+Role-aware claim defaults:
+- funding claims default to `definition.originatorClaimantXonly` and fall back to `controllerXonly`
+- repayment claims default to `state.holderClaimantXonly` and fall back to `controllerXonly`
 
 Suggested flow:
 
@@ -70,6 +76,7 @@ Suggested flow:
    - `sdk.receivables.prepareFunding(...)`
    - `sdk.receivables.prepareRepayment(...)`
    - `sdk.receivables.prepareWriteOff(...)`
+   - when the receivable holder changes on funding, set `holderClaimantXonly` for the new holder if you do not want to fall back to `controllerXonly`
 4. Prepare, inspect, execute, or verify runtime funding claims with:
    - `sdk.receivables.prepareFundingClaim(...)`
    - `sdk.receivables.inspectFundingClaim(...)`
@@ -80,6 +87,7 @@ Suggested flow:
    - `sdk.receivables.inspectRepaymentClaim(...)`
    - `sdk.receivables.executeRepaymentClaim(...)`
    - `sdk.receivables.verifyRepaymentClaim(...)`
+   - when you model partial repayment, repeat this step for the partial state and again for the final repaid state
 6. When you maintain the canonical state history, verify it with `sdk.receivables.verifyStateHistory(...)`
 7. Prepare or verify terminal close-out with:
    - `sdk.receivables.prepareClosing(...)`
@@ -99,6 +107,11 @@ Public receivable confidence commands:
 - `npm run e2e:receivable-local`
 - `RECEIVABLE_OUTPUT_BINDING_MODE=script-bound npm run e2e:receivable-testnet`
 - `RECEIVABLE_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:receivable-testnet`
+
+Public sample chain:
+- `receivable-state-originated.json -> receivable-state-funded.json -> receivable-state-partially-repaid.json -> receivable-state-repaid.json`
+- `receivable-repayment-claim-partial.json` shows the intermediate claim
+- `receivable-repayment-claim.json` shows the terminal repayment claim used for close-out/finality
 
 Reference example:
 - `./examples/show-receivable-lineage.ts`
@@ -178,7 +191,8 @@ Public Bond example:
    - `sdk.funds.verifyClosing(...)`
    - when `sequence > 0`, pass the immediate previous `LPPositionReceiptEnvelope` as well
    - when available, also pass the full attested receipt chain to get shared receipt-chain trust fields such as `lineageKind`, `latestOrdinal`, `fullLineageVerified`, and `fullChainVerified`
-13. Export evidence and finality payloads with:
+13. For cutoff operations, use the public [fund cutoff runbook](../fund-cutoff-runbook.md) alongside your watcher/keeper automation
+14. Export evidence and finality payloads with:
    - `sdk.funds.exportEvidence(...)`
    - `sdk.funds.exportFinalityPayload(...)`
 
@@ -375,6 +389,7 @@ Fund security model summary:
   - manager attestation over receipt hash and sequence
 - operationally enforced:
   - watcher/keeper executes rollover after cutoff so refund-only semantics become active
+  - the public [fund cutoff runbook](../fund-cutoff-runbook.md) is the recommended operator baseline
 
 Public fund confidence commands:
 - `npm run e2e:fund-consumer`

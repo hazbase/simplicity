@@ -603,6 +603,7 @@ export type ReceivableStatus = "ORIGINATED" | "FUNDED" | "PARTIALLY_REPAID" | "R
 export type ReceivableTransitionType = "ORIGINATE" | "FUND" | "REPAY" | "WRITE_OFF";
 export type ReceivableClosingReason = "REPAID" | "DEFAULTED" | "CANCELLED";
 export type ReceivableClaimKind = "FUNDING" | "REPAYMENT";
+export type ReceivableClaimAuthoritySource = "originator-claimant" | "holder-claimant" | "controller-fallback";
 export type ReceivableVerificationReportSchemaVersion = "receivable-verification-report/v1";
 export type ReceivableEvidenceBundleSchemaVersion = "receivable-evidence-bundle/v1";
 export type ReceivableFinalityPayloadSchemaVersion = "receivable-finality-payload/v1";
@@ -615,6 +616,7 @@ export interface ReceivableDefinition {
   faceValue: number;
   dueDate: string;
   controllerXonly: string;
+  originatorClaimantXonly?: string;
 }
 
 export interface ReceivableStateTransition {
@@ -631,6 +633,7 @@ export interface ReceivableState {
   holderEntityId: string;
   currencyAssetId: string;
   controllerXonly: string;
+  holderClaimantXonly?: string;
   faceValue: number;
   outstandingAmount: number;
   repaidAmount: number;
@@ -690,6 +693,8 @@ export interface ReceivableClosingTrust {
 
 export interface ReceivableClaimTrust {
   claimKind: ReceivableClaimKind;
+  claimantAuthoritySource: ReceivableClaimAuthoritySource;
+  roleSeparatedAuthorization: boolean;
   generated: boolean;
   stateStatusEligible: boolean;
   receivableIdMatch: boolean;

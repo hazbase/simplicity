@@ -1,13 +1,13 @@
 {
-  "claimId": "REC-001-REPAYMENT-CLAIM",
+  "claimId": "REC-001-REPAYMENT-CLAIM-FINAL",
   "claimKind": "REPAYMENT",
   "receivableId": "REC-001",
-  "currentStateHash": "13ae81254644a47f33492812584e169b4ae2051dfedc5ad46d00510c137dc333",
+  "currentStateHash": "a18fdc99bf37de415bfa242a387cdb41b943d2581bfe177aec51c3e42e9e40bf",
   "currentStatus": "REPAID",
   "payerEntityId": "debtor-1",
   "payeeEntityId": "fund-1",
-  "claimantXonly": "1111111111111111111111111111111111111111111111111111111111111111",
+  "claimantXonly": "2222222222222222222222222222222222222222222222222222222222222222",
   "currencyAssetId": "bitcoin",
-  "amountSat": 10000,
-  "eventTimestamp": "2027-02-01T00:00:00Z"
+  "amountSat": 6000,
+  "eventTimestamp": "2027-03-01T00:00:00Z"
 }

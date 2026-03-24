@@ -19,7 +19,7 @@ With the current public SDK you can build and test:
 - output binding with public support/fallback reporting
 - bond redemption / settlement / close-out flows
 - LP fund capital call / distribution / close-out flows
-- receivable repayment-first funding / repayment / closing flows
+- receivable repayment-first funding / partial repayment / closing flows
 - evidence, trust summary, lineage, and finality exports
 
 ## Public Architecture
@@ -130,9 +130,14 @@ Main entrypoints:
 Representative example:
 - [show-fund-claim-close-flow.ts](./examples/show-fund-claim-close-flow.ts)
 
+Operational note:
+- [fund-cutoff-runbook.md](./docs/fund-cutoff-runbook.md)
+
 ### Receivables
 
-Use `sdk.receivables` for repayment-first receivable or invoice-style pilots where you want canonical state transitions, runtime claim descriptors, lineage verification, and terminal closing.
+Use `sdk.receivables` for repayment-first receivable or invoice-style pilots where you want canonical state transitions, role-aware runtime claim descriptors, partial repayment handling, lineage verification, and terminal closing.
+
+By default, funding claims resolve against the originator claimant key and repayment claims resolve against the current holder claimant key, while `controllerXonly` remains the fallback for simpler pilots.
 
 Main entrypoints:
 - `sdk.receivables.define(...)`
@@ -221,3 +226,5 @@ For practical usage you typically need:
 - a reachable Elements / Liquid RPC endpoint
 
 Some commands are SDK-only and work without live spends. Local and testnet e2e flows need the toolchain and, for broadcasted flows, an RPC environment.
+
+The dedicated restricted OTC testnet runner clean-skips when RPC credentials are missing so it can stay in public CI and local verification scripts without turning missing env into a hard failure.

@@ -7,7 +7,7 @@ import {
 } from "../dist/index.js";
 import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
-const RUNTIME_STATE_SCHEMA_VERSION = "receivable-e2e-testnet-state/v1";
+const RUNTIME_STATE_SCHEMA_VERSION = "receivable-e2e-testnet-state/v3";
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -49,9 +49,7 @@ async function loadRuntimeState(runtimeStatePath) {
   if (!existsSync(runtimeStatePath)) return null;
   const parsed = JSON.parse(await readFile(runtimeStatePath, "utf8"));
   if (parsed.schemaVersion !== RUNTIME_STATE_SCHEMA_VERSION) {
-    throw new Error(
-      `Unsupported runtime state schemaVersion: ${parsed.schemaVersion} (expected ${RUNTIME_STATE_SCHEMA_VERSION})`,
-    );
+    return null;
   }
   return parsed;
 }
@@ -124,11 +122,14 @@ async function loadOrPrepareScenario(sdk, input) {
     && existsSync(input.runtimeState.definitionPath)
     && existsSync(input.runtimeState.originatedStatePath)
     && existsSync(input.runtimeState.fundedStatePath)
+    && existsSync(input.runtimeState.partialRepaidStatePath)
     && existsSync(input.runtimeState.repaidStatePath)
     && existsSync(input.runtimeState.fundingClaimPath)
-    && existsSync(input.runtimeState.repaymentClaimPath)
+    && existsSync(input.runtimeState.partialRepaymentClaimPath)
+    && existsSync(input.runtimeState.finalRepaymentClaimPath)
     && existsSync(input.runtimeState.fundingArtifactPath)
-    && existsSync(input.runtimeState.repaymentArtifactPath)
+    && existsSync(input.runtimeState.partialRepaymentArtifactPath)
+    && existsSync(input.runtimeState.finalRepaymentArtifactPath)
     && existsSync(input.runtimeState.closingPath);
 
   if (reusable) {
@@ -136,12 +137,15 @@ async function loadOrPrepareScenario(sdk, input) {
       definition: await readJson(input.runtimeState.definitionPath),
       originated: await readJson(input.runtimeState.originatedStatePath),
       funded: await readJson(input.runtimeState.fundedStatePath),
+      partialRepaid: await readJson(input.runtimeState.partialRepaidStatePath),
       repaid: await readJson(input.runtimeState.repaidStatePath),
       fundingClaim: await readJson(input.runtimeState.fundingClaimPath),
-      repaymentClaim: await readJson(input.runtimeState.repaymentClaimPath),
+      partialRepaymentClaim: await readJson(input.runtimeState.partialRepaymentClaimPath),
+      finalRepaymentClaim: await readJson(input.runtimeState.finalRepaymentClaimPath),
       closing: await readJson(input.runtimeState.closingPath),
       fundingCompiled: await sdk.loadArtifact(input.runtimeState.fundingArtifactPath),
-      repaymentCompiled: await sdk.loadArtifact(input.runtimeState.repaymentArtifactPath),
+      partialRepaymentCompiled: await sdk.loadArtifact(input.runtimeState.partialRepaymentArtifactPath),
+      finalRepaymentCompiled: await sdk.loadArtifact(input.runtimeState.finalRepaymentArtifactPath),
     };
   }
 
@@ -154,6 +158,7 @@ async function loadOrPrepareScenario(sdk, input) {
     faceValue: input.faceValueSat,
     dueDate: env("RECEIVABLE_DUE_DATE", "2027-12-31T00:00:00Z"),
     controllerXonly: input.claimantKeyPair.xonly,
+    originatorClaimantXonly: env("RECEIVABLE_ORIGINATOR_CLAIMANT_XONLY", input.claimantKeyPair.xonly),
   };
   const originatedAt = env("RECEIVABLE_ORIGINATED_AT", "2027-01-01T00:00:00Z");
   const originated = {
@@ -164,6 +169,7 @@ async function loadOrPrepareScenario(sdk, input) {
     holderEntityId: definition.originatorEntityId,
     currencyAssetId: definition.currencyAssetId,
     controllerXonly: definition.controllerXonly,
+    holderClaimantXonly: definition.originatorClaimantXonly,
     faceValue: definition.faceValue,
     outstandingAmount: definition.faceValue,
     repaidAmount: 0,
@@ -181,10 +187,12 @@ async function loadOrPrepareScenario(sdk, input) {
     previousStateValue: originated,
     stateId: `${definition.receivableId}-S1`,
     holderEntityId: env("RECEIVABLE_FUNDER_ENTITY_ID", "spv-a"),
+    holderClaimantXonly: env("RECEIVABLE_HOLDER_CLAIMANT_XONLY", definition.controllerXonly),
     fundedAt: env("RECEIVABLE_FUNDED_AT", "2027-01-02T00:00:00Z"),
   });
   const fundingClaimDescriptor = buildReceivableFundingClaimDescriptor({
     claimId: `${definition.receivableId}-FUNDING-CLAIM`,
+    definition,
     currentState: funding.nextStateValue,
   });
   const fundingClaim = await sdk.receivables.prepareFundingClaim({
@@ -195,61 +203,119 @@ async function loadOrPrepareScenario(sdk, input) {
     artifactPath: input.runtimeState.fundingArtifactPath,
   });
 
-  const repayment = await sdk.receivables.prepareRepayment({
+  const partialRepaymentAmountSat = Number(env("RECEIVABLE_PARTIAL_REPAYMENT_AMOUNT_SAT", "4000"));
+  if (!Number.isFinite(partialRepaymentAmountSat) || partialRepaymentAmountSat <= 0 || partialRepaymentAmountSat >= definition.faceValue) {
+    throw new Error("RECEIVABLE_PARTIAL_REPAYMENT_AMOUNT_SAT must be a positive number smaller than faceValue");
+  }
+  const partialRepayment = await sdk.receivables.prepareRepayment({
     definitionValue: definition,
     previousStateValue: funding.nextStateValue,
     stateId: `${definition.receivableId}-S2`,
-    amount: definition.faceValue,
-    repaidAt: env("RECEIVABLE_REPAID_AT", "2027-02-01T00:00:00Z"),
+    amount: partialRepaymentAmountSat,
+    repaidAt: env("RECEIVABLE_PARTIAL_REPAID_AT", "2027-02-01T00:00:00Z"),
   });
-  const repaymentClaimDescriptor = buildReceivableRepaymentClaimDescriptor({
-    claimId: `${definition.receivableId}-REPAYMENT-CLAIM`,
-    currentState: repayment.nextStateValue,
+  const partialRepaymentClaimDescriptor = buildReceivableRepaymentClaimDescriptor({
+    claimId: `${definition.receivableId}-REPAYMENT-CLAIM-PARTIAL`,
+    currentState: partialRepayment.nextStateValue,
   });
-  const repaymentClaim = await sdk.receivables.prepareRepaymentClaim({
+  const partialRepaymentClaim = await sdk.receivables.prepareRepaymentClaim({
     definitionValue: definition,
-    currentStateValue: repayment.nextStateValue,
-    stateHistoryValues: [originated, funding.nextStateValue, repayment.nextStateValue],
-    repaymentClaimValue: repaymentClaimDescriptor,
-    artifactPath: input.runtimeState.repaymentArtifactPath,
+    currentStateValue: partialRepayment.nextStateValue,
+    stateHistoryValues: [originated, funding.nextStateValue, partialRepayment.nextStateValue],
+    repaymentClaimValue: partialRepaymentClaimDescriptor,
+    artifactPath: input.runtimeState.partialRepaymentArtifactPath,
+  });
+
+  const finalRepaymentAmountSat = Number(
+    env("RECEIVABLE_FINAL_REPAYMENT_AMOUNT_SAT", String(definition.faceValue - partialRepaymentAmountSat)),
+  );
+  if (!Number.isFinite(finalRepaymentAmountSat) || finalRepaymentAmountSat !== partialRepayment.nextStateValue.outstandingAmount) {
+    throw new Error("RECEIVABLE_FINAL_REPAYMENT_AMOUNT_SAT must equal the partial state outstanding amount");
+  }
+  const finalRepayment = await sdk.receivables.prepareRepayment({
+    definitionValue: definition,
+    previousStateValue: partialRepayment.nextStateValue,
+    stateId: `${definition.receivableId}-S3`,
+    amount: finalRepaymentAmountSat,
+    repaidAt: env("RECEIVABLE_FINAL_REPAID_AT", "2027-03-01T00:00:00Z"),
+  });
+  const finalRepaymentClaimDescriptor = buildReceivableRepaymentClaimDescriptor({
+    claimId: `${definition.receivableId}-REPAYMENT-CLAIM-FINAL`,
+    currentState: finalRepayment.nextStateValue,
+  });
+  const finalRepaymentClaim = await sdk.receivables.prepareRepaymentClaim({
+    definitionValue: definition,
+    currentStateValue: finalRepayment.nextStateValue,
+    stateHistoryValues: [
+      originated,
+      funding.nextStateValue,
+      partialRepayment.nextStateValue,
+      finalRepayment.nextStateValue,
+    ],
+    repaymentClaimValue: finalRepaymentClaimDescriptor,
+    artifactPath: input.runtimeState.finalRepaymentArtifactPath,
   });
 
   const closing = await sdk.receivables.prepareClosing({
     definitionValue: definition,
-    latestStateValue: repayment.nextStateValue,
-    stateHistoryValues: [originated, funding.nextStateValue, repayment.nextStateValue],
+    latestStateValue: finalRepayment.nextStateValue,
+    stateHistoryValues: [
+      originated,
+      funding.nextStateValue,
+      partialRepayment.nextStateValue,
+      finalRepayment.nextStateValue,
+    ],
     closingId: `${definition.receivableId}-CLOSE`,
-    closedAt: env("RECEIVABLE_CLOSED_AT", "2027-02-02T00:00:00Z"),
+    closedAt: env("RECEIVABLE_CLOSED_AT", "2027-03-02T00:00:00Z"),
   });
 
   await writeJson(input.runtimeState.definitionPath, definition);
   await writeJson(input.runtimeState.originatedStatePath, originated);
   await writeJson(input.runtimeState.fundedStatePath, funding.nextStateValue);
-  await writeJson(input.runtimeState.repaidStatePath, repayment.nextStateValue);
+  await writeJson(input.runtimeState.partialRepaidStatePath, partialRepayment.nextStateValue);
+  await writeJson(input.runtimeState.repaidStatePath, finalRepayment.nextStateValue);
   await writeJson(input.runtimeState.fundingClaimPath, fundingClaim.claimValue);
-  await writeJson(input.runtimeState.repaymentClaimPath, repaymentClaim.claimValue);
+  await writeJson(input.runtimeState.partialRepaymentClaimPath, partialRepaymentClaim.claimValue);
+  await writeJson(input.runtimeState.finalRepaymentClaimPath, finalRepaymentClaim.claimValue);
   await writeJson(input.runtimeState.closingPath, closing.closingValue);
 
   input.runtimeState.phase = "prepared";
   input.runtimeState.receivableId = definition.receivableId;
   input.runtimeState.fundingClaimContractAddress = fundingClaim.compiled.deployment().contractAddress;
-  input.runtimeState.repaymentClaimContractAddress = repaymentClaim.compiled.deployment().contractAddress;
+  input.runtimeState.partialRepaymentClaimContractAddress = partialRepaymentClaim.compiled.deployment().contractAddress;
+  input.runtimeState.finalRepaymentClaimContractAddress = finalRepaymentClaim.compiled.deployment().contractAddress;
   await saveRuntimeState(input.runtimeStatePath, input.runtimeState);
 
   return {
     definition,
     originated,
     funded: funding.nextStateValue,
-    repaid: repayment.nextStateValue,
+    partialRepaid: partialRepayment.nextStateValue,
+    repaid: finalRepayment.nextStateValue,
     fundingClaim: fundingClaim.claimValue,
-    repaymentClaim: repaymentClaim.claimValue,
+    partialRepaymentClaim: partialRepaymentClaim.claimValue,
+    finalRepaymentClaim: finalRepaymentClaim.claimValue,
     closing: closing.closingValue,
     fundingCompiled: fundingClaim.compiled,
-    repaymentCompiled: repaymentClaim.compiled,
+    partialRepaymentCompiled: partialRepaymentClaim.compiled,
+    finalRepaymentCompiled: finalRepaymentClaim.compiled,
   };
 }
 
 async function main() {
+  const missingRpcEnv = ["ELEMENTS_RPC_URL", "ELEMENTS_RPC_USER", "ELEMENTS_RPC_PASSWORD"].filter(
+    (name) => !process.env[name],
+  );
+  if (missingRpcEnv.length > 0) {
+    console.log(JSON.stringify({
+      skipped: true,
+      reason: "Elements RPC environment is required for npm run e2e:receivable-testnet",
+      missingEnv: missingRpcEnv,
+      bindingMode: env("RECEIVABLE_OUTPUT_BINDING_MODE", "script-bound"),
+    }, null, 2));
+    return;
+  }
+
   const sdk = createSimplicityClient({
     network: "liquidtestnet",
     rpc: {
@@ -277,11 +343,14 @@ async function main() {
     definitionPath: defaultPath(outputBindingMode, "definition", "json"),
     originatedStatePath: defaultPath(outputBindingMode, "originated", "json"),
     fundedStatePath: defaultPath(outputBindingMode, "funded", "json"),
+    partialRepaidStatePath: defaultPath(outputBindingMode, "partially-repaid", "json"),
     repaidStatePath: defaultPath(outputBindingMode, "repaid", "json"),
     fundingClaimPath: defaultPath(outputBindingMode, "funding-claim", "json"),
-    repaymentClaimPath: defaultPath(outputBindingMode, "repayment-claim", "json"),
+    partialRepaymentClaimPath: defaultPath(outputBindingMode, "repayment-claim-partial", "json"),
+    finalRepaymentClaimPath: defaultPath(outputBindingMode, "repayment-claim-final", "json"),
     fundingArtifactPath: defaultPath(outputBindingMode, "funding-claim", "artifact.json"),
-    repaymentArtifactPath: defaultPath(outputBindingMode, "repayment-claim", "artifact.json"),
+    partialRepaymentArtifactPath: defaultPath(outputBindingMode, "repayment-claim-partial", "artifact.json"),
+    finalRepaymentArtifactPath: defaultPath(outputBindingMode, "repayment-claim-final", "artifact.json"),
     closingPath: defaultPath(outputBindingMode, "closing", "json"),
   };
 
@@ -316,7 +385,8 @@ async function main() {
   });
 
   const fundingClaimFundingSat = scenario.fundingClaim.amountSat + feeSat;
-  const repaymentClaimFundingSat = scenario.repaymentClaim.amountSat + feeSat;
+  const partialRepaymentClaimFundingSat = scenario.partialRepaymentClaim.amountSat + feeSat;
+  const finalRepaymentClaimFundingSat = scenario.finalRepaymentClaim.amountSat + feeSat;
 
   const fundingClaimFundingTxId = runtimeState.fundingClaimFundingTxId
     ?? (await sdk.rpc.call("sendtoaddress", [
@@ -371,49 +441,49 @@ async function main() {
     await saveRuntimeState(runtimeStatePath, runtimeState);
   }
 
-  const repaymentClaimFundingTxId = runtimeState.repaymentClaimFundingTxId
+  const partialRepaymentClaimFundingTxId = runtimeState.partialRepaymentClaimFundingTxId
     ?? (await sdk.rpc.call("sendtoaddress", [
-      scenario.repaymentCompiled.deployment().contractAddress,
-      satToBtc(repaymentClaimFundingSat),
+      scenario.partialRepaymentCompiled.deployment().contractAddress,
+      satToBtc(partialRepaymentClaimFundingSat),
     ]));
-  if (!runtimeState.repaymentClaimFundingTxId) {
-    runtimeState.phase = "repayment-claim-funded";
-    runtimeState.repaymentClaimFundingTxId = repaymentClaimFundingTxId;
+  if (!runtimeState.partialRepaymentClaimFundingTxId) {
+    runtimeState.phase = "partial-repayment-claim-funded";
+    runtimeState.partialRepaymentClaimFundingTxId = partialRepaymentClaimFundingTxId;
     await saveRuntimeState(runtimeStatePath, runtimeState);
   }
-  await waitForFundingConfirmations(sdk, repaymentClaimFundingTxId, {
-    phase: "waiting-repayment-claim-confirmations",
+  await waitForFundingConfirmations(sdk, partialRepaymentClaimFundingTxId, {
+    phase: "waiting-partial-repayment-claim-confirmations",
     requiredConfirmations: 1,
     timeoutMs: waitTimeoutMs,
     pollIntervalMs: waitPollMs,
   });
-  await waitForSpendableFunding(sdk, scenario.repaymentCompiled.deployment().contractAddress, {
-    phase: "waiting-repayment-claim-utxo",
+  await waitForSpendableFunding(sdk, scenario.partialRepaymentCompiled.deployment().contractAddress, {
+    phase: "waiting-partial-repayment-claim-utxo",
     requiredConfirmations: 1,
-    minAmountSat: repaymentClaimFundingSat,
+    minAmountSat: partialRepaymentClaimFundingSat,
     timeoutMs: waitTimeoutMs,
     pollIntervalMs: waitPollMs,
-    expectedTxId: repaymentClaimFundingTxId,
+    expectedTxId: partialRepaymentClaimFundingTxId,
   });
 
-  const repaymentClaimExecution = runtimeState.repaymentClaimExecutionTxId
+  const partialRepaymentClaimExecution = runtimeState.partialRepaymentClaimExecutionTxId
     ? {
         execution: {
-          txId: runtimeState.repaymentClaimExecutionTxId,
+          txId: runtimeState.partialRepaymentClaimExecutionTxId,
           broadcasted: true,
         },
-        report: runtimeState.repaymentClaimReport,
+        report: runtimeState.partialRepaymentClaimReport,
       }
     : await sdk.receivables.executeRepaymentClaim({
-        artifactPath: runtimeState.repaymentArtifactPath,
+        artifactPath: runtimeState.partialRepaymentArtifactPath,
         definitionPath: runtimeState.definitionPath,
-        currentStatePath: runtimeState.repaidStatePath,
+        currentStatePath: runtimeState.partialRepaidStatePath,
         stateHistoryPaths: [
           runtimeState.originatedStatePath,
           runtimeState.fundedStatePath,
-          runtimeState.repaidStatePath,
+          runtimeState.partialRepaidStatePath,
         ],
-        repaymentClaimPath: runtimeState.repaymentClaimPath,
+        repaymentClaimPath: runtimeState.partialRepaymentClaimPath,
         payoutAddress,
         outputBindingMode,
         wallet,
@@ -421,10 +491,68 @@ async function main() {
         feeSat,
         broadcast: true,
       });
-  if (!runtimeState.repaymentClaimExecutionTxId) {
-    runtimeState.phase = "repayment-claim-executed";
-    runtimeState.repaymentClaimExecutionTxId = repaymentClaimExecution.execution.txId;
-    runtimeState.repaymentClaimReport = repaymentClaimExecution.report;
+  if (!runtimeState.partialRepaymentClaimExecutionTxId) {
+    runtimeState.phase = "partial-repayment-claim-executed";
+    runtimeState.partialRepaymentClaimExecutionTxId = partialRepaymentClaimExecution.execution.txId;
+    runtimeState.partialRepaymentClaimReport = partialRepaymentClaimExecution.report;
+    await saveRuntimeState(runtimeStatePath, runtimeState);
+  }
+
+  const finalRepaymentClaimFundingTxId = runtimeState.finalRepaymentClaimFundingTxId
+    ?? (await sdk.rpc.call("sendtoaddress", [
+      scenario.finalRepaymentCompiled.deployment().contractAddress,
+      satToBtc(finalRepaymentClaimFundingSat),
+    ]));
+  if (!runtimeState.finalRepaymentClaimFundingTxId) {
+    runtimeState.phase = "final-repayment-claim-funded";
+    runtimeState.finalRepaymentClaimFundingTxId = finalRepaymentClaimFundingTxId;
+    await saveRuntimeState(runtimeStatePath, runtimeState);
+  }
+  await waitForFundingConfirmations(sdk, finalRepaymentClaimFundingTxId, {
+    phase: "waiting-final-repayment-claim-confirmations",
+    requiredConfirmations: 1,
+    timeoutMs: waitTimeoutMs,
+    pollIntervalMs: waitPollMs,
+  });
+  await waitForSpendableFunding(sdk, scenario.finalRepaymentCompiled.deployment().contractAddress, {
+    phase: "waiting-final-repayment-claim-utxo",
+    requiredConfirmations: 1,
+    minAmountSat: finalRepaymentClaimFundingSat,
+    timeoutMs: waitTimeoutMs,
+    pollIntervalMs: waitPollMs,
+    expectedTxId: finalRepaymentClaimFundingTxId,
+  });
+
+  const finalRepaymentClaimExecution = runtimeState.finalRepaymentClaimExecutionTxId
+    ? {
+        execution: {
+          txId: runtimeState.finalRepaymentClaimExecutionTxId,
+          broadcasted: true,
+        },
+        report: runtimeState.finalRepaymentClaimReport,
+      }
+    : await sdk.receivables.executeRepaymentClaim({
+        artifactPath: runtimeState.finalRepaymentArtifactPath,
+        definitionPath: runtimeState.definitionPath,
+        currentStatePath: runtimeState.repaidStatePath,
+        stateHistoryPaths: [
+          runtimeState.originatedStatePath,
+          runtimeState.fundedStatePath,
+          runtimeState.partialRepaidStatePath,
+          runtimeState.repaidStatePath,
+        ],
+        repaymentClaimPath: runtimeState.finalRepaymentClaimPath,
+        payoutAddress,
+        outputBindingMode,
+        wallet,
+        signer: { type: "schnorrPrivkeyHex", privkeyHex: claimantKeyPair.privkeyHex },
+        feeSat,
+        broadcast: true,
+      });
+  if (!runtimeState.finalRepaymentClaimExecutionTxId) {
+    runtimeState.phase = "final-repayment-claim-executed";
+    runtimeState.finalRepaymentClaimExecutionTxId = finalRepaymentClaimExecution.execution.txId;
+    runtimeState.finalRepaymentClaimReport = finalRepaymentClaimExecution.report;
     await saveRuntimeState(runtimeStatePath, runtimeState);
   }
 
@@ -433,10 +561,11 @@ async function main() {
     stateHistoryPaths: [
       runtimeState.originatedStatePath,
       runtimeState.fundedStatePath,
+      runtimeState.partialRepaidStatePath,
       runtimeState.repaidStatePath,
     ],
     fundingClaimPath: runtimeState.fundingClaimPath,
-    repaymentClaimPath: runtimeState.repaymentClaimPath,
+    repaymentClaimPath: runtimeState.finalRepaymentClaimPath,
     closingPath: runtimeState.closingPath,
   });
 
@@ -447,13 +576,22 @@ async function main() {
       contractAddress: scenario.fundingCompiled.deployment().contractAddress,
       fundingTxId: fundingClaimFundingTxId,
       claimTxId: fundingClaimExecution.execution.txId,
+      authoritySource: fundingClaimExecution.report?.fundingClaimTrust?.claimantAuthoritySource ?? null,
       reasonCode: fundingClaimExecution.report?.fundingClaimTrust?.reasonCode ?? null,
     },
-    repaymentClaim: {
-      contractAddress: scenario.repaymentCompiled.deployment().contractAddress,
-      fundingTxId: repaymentClaimFundingTxId,
-      claimTxId: repaymentClaimExecution.execution.txId,
-      reasonCode: repaymentClaimExecution.report?.repaymentClaimTrust?.reasonCode ?? null,
+    partialRepaymentClaim: {
+      contractAddress: scenario.partialRepaymentCompiled.deployment().contractAddress,
+      fundingTxId: partialRepaymentClaimFundingTxId,
+      claimTxId: partialRepaymentClaimExecution.execution.txId,
+      authoritySource: partialRepaymentClaimExecution.report?.repaymentClaimTrust?.claimantAuthoritySource ?? null,
+      reasonCode: partialRepaymentClaimExecution.report?.repaymentClaimTrust?.reasonCode ?? null,
+    },
+    finalRepaymentClaim: {
+      contractAddress: scenario.finalRepaymentCompiled.deployment().contractAddress,
+      fundingTxId: finalRepaymentClaimFundingTxId,
+      claimTxId: finalRepaymentClaimExecution.execution.txId,
+      authoritySource: finalRepaymentClaimExecution.report?.repaymentClaimTrust?.claimantAuthoritySource ?? null,
+      reasonCode: finalRepaymentClaimExecution.report?.repaymentClaimTrust?.reasonCode ?? null,
     },
     closing: {
       closingHash: finality.closingHash,

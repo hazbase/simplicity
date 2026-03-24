@@ -699,6 +699,7 @@ export async function prepareFunding(
     nextStateValue?: ReceivableState;
     stateId?: string;
     holderEntityId?: string;
+    holderClaimantXonly?: string;
     fundedAt?: string;
   },
 ) {
@@ -717,6 +718,7 @@ export async function prepareFunding(
           previous: previous.value,
           stateId: input.stateId ?? `${previous.value.receivableId}-FUNDED`,
           holderEntityId: input.holderEntityId ?? previous.value.holderEntityId,
+          holderClaimantXonly: input.holderClaimantXonly,
           fundedAt: input.fundedAt ?? new Date().toISOString(),
         }),
       });
@@ -734,6 +736,7 @@ async function loadReceivableFundingClaimDocument(
   input: {
     fundingClaimPath?: string;
     fundingClaimValue?: ReceivableFundingClaimDescriptor;
+    definitionValue?: ReceivableDefinition;
     currentStateValue?: ReceivableState;
     claimId?: string;
     payerEntityId?: string;
@@ -764,6 +767,7 @@ async function loadReceivableFundingClaimDocument(
   }
   const value = buildReceivableFundingClaimDescriptor({
     claimId: input.claimId,
+    definition: input.definitionValue,
     currentState: input.currentStateValue,
     payerEntityId: input.payerEntityId,
     payeeEntityId: input.payeeEntityId,
@@ -1055,6 +1059,7 @@ export async function prepareFundingClaim(
   const claim = await loadReceivableFundingClaimDocument(sdk, {
     fundingClaimPath: input.fundingClaimPath,
     fundingClaimValue: input.fundingClaimValue,
+    definitionValue: definition.value,
     currentStateValue: currentState.value,
     claimId: input.claimId ?? `${currentState.value.receivableId}-FUNDING-CLAIM`,
     payerEntityId: input.payerEntityId,
@@ -1068,6 +1073,7 @@ export async function prepareFundingClaim(
     ? verifyReceivableStateHistory({ history: history.map((entry) => entry.value) })
     : undefined;
   const claimChecks = validateReceivableFundingClaimAgainstState({
+    definition: definition.value,
     currentState: currentState.value,
     claim: claim.value,
   });
@@ -1126,12 +1132,14 @@ export async function verifyFundingClaim(
   const claim = await loadReceivableFundingClaimDocument(sdk, {
     fundingClaimPath: input.fundingClaimPath,
     fundingClaimValue: input.fundingClaimValue,
+    definitionValue: definition.value,
   });
   const crossChecks = validateReceivableCrossChecks(definition.value, currentState.value);
   const lineageChecks = history.length > 0
     ? verifyReceivableStateHistory({ history: history.map((entry) => entry.value) })
     : undefined;
   const claimChecks = validateReceivableFundingClaimAgainstState({
+    definition: definition.value,
     currentState: currentState.value,
     claim: claim.value,
   });
@@ -1249,6 +1257,10 @@ export async function inspectFundingClaim(
         claimantXonlyCommitted: verified.report.fundingClaimTrust?.claimantXonlyCommitted ?? true,
         checks: {
           claimKind: verified.report.fundingClaimTrust?.claimKind ?? "FUNDING",
+          claimantAuthoritySource:
+            verified.report.fundingClaimTrust?.claimantAuthoritySource ?? "controller-fallback",
+          roleSeparatedAuthorization:
+            verified.report.fundingClaimTrust?.roleSeparatedAuthorization ?? false,
           stateStatusEligible: verified.report.fundingClaimTrust?.stateStatusEligible ?? false,
           receivableIdMatch: verified.report.fundingClaimTrust?.receivableIdMatch ?? false,
           currentStateHashMatch: verified.report.fundingClaimTrust?.currentStateHashMatch ?? false,
@@ -1523,6 +1535,10 @@ export async function inspectRepaymentClaim(
         claimantXonlyCommitted: verified.report.repaymentClaimTrust?.claimantXonlyCommitted ?? true,
         checks: {
           claimKind: verified.report.repaymentClaimTrust?.claimKind ?? "REPAYMENT",
+          claimantAuthoritySource:
+            verified.report.repaymentClaimTrust?.claimantAuthoritySource ?? "controller-fallback",
+          roleSeparatedAuthorization:
+            verified.report.repaymentClaimTrust?.roleSeparatedAuthorization ?? false,
           stateStatusEligible: verified.report.repaymentClaimTrust?.stateStatusEligible ?? false,
           receivableIdMatch: verified.report.repaymentClaimTrust?.receivableIdMatch ?? false,
           currentStateHashMatch: verified.report.repaymentClaimTrust?.currentStateHashMatch ?? false,

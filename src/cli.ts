@@ -1428,6 +1428,8 @@ function formatReceivableClaimSummary(input: {
   payerEntityId: string;
   payeeEntityId: string;
   amountSat: number;
+  claimantAuthoritySource?: string;
+  roleSeparatedAuthorization?: boolean;
   bindingMode?: string;
   reasonCode?: string;
   supportedForm?: string;
@@ -1443,6 +1445,10 @@ function formatReceivableClaimSummary(input: {
     `payerEntityId=${input.payerEntityId}`,
     `payeeEntityId=${input.payeeEntityId}`,
     `amountSat=${input.amountSat}`,
+    input.claimantAuthoritySource ? `claimantAuthoritySource=${input.claimantAuthoritySource}` : undefined,
+    input.roleSeparatedAuthorization !== undefined
+      ? `roleSeparatedAuthorization=${input.roleSeparatedAuthorization}`
+      : undefined,
     input.bindingMode ? `bindingMode=${input.bindingMode}` : undefined,
     input.reasonCode ? `reasonCode=${input.reasonCode}` : undefined,
     input.supportedForm ? `supportedForm=${input.supportedForm}` : undefined,
@@ -4156,6 +4162,7 @@ async function main(): Promise<void> {
       nextStateValue: parseJsonArg("next-state-value"),
       stateId: getArg("state-id"),
       holderEntityId: getArg("holder-entity-id"),
+      holderClaimantXonly: getArg("holder-claimant-xonly"),
       fundedAt: getArg("funded-at"),
     });
     printJson({
@@ -4233,6 +4240,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.fundingClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.fundingClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.fundingClaimTrust?.bindingMode,
         reasonCode: result.report.fundingClaimTrust?.reasonCode,
         supportedForm: result.report.fundingClaimTrust?.supportedForm,
@@ -4266,6 +4275,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.fundingClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.fundingClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.fundingClaimTrust?.bindingMode,
         reasonCode: result.report.fundingClaimTrust?.reasonCode,
         supportedForm: result.report.fundingClaimTrust?.supportedForm,
@@ -4308,6 +4319,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.fundingClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.fundingClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.fundingClaimTrust?.bindingMode,
         reasonCode: result.report.fundingClaimTrust?.reasonCode,
         supportedForm: result.report.fundingClaimTrust?.supportedForm,
@@ -4351,6 +4364,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.fundingClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.fundingClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.fundingClaimTrust?.bindingMode,
         reasonCode: result.report.fundingClaimTrust?.reasonCode,
         supportedForm: result.report.fundingClaimTrust?.supportedForm,
@@ -4421,6 +4436,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.repaymentClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.repaymentClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.repaymentClaimTrust?.bindingMode,
         reasonCode: result.report.repaymentClaimTrust?.reasonCode,
         supportedForm: result.report.repaymentClaimTrust?.supportedForm,
@@ -4454,6 +4471,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.repaymentClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.repaymentClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.repaymentClaimTrust?.bindingMode,
         reasonCode: result.report.repaymentClaimTrust?.reasonCode,
         supportedForm: result.report.repaymentClaimTrust?.supportedForm,
@@ -4496,6 +4515,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.repaymentClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.repaymentClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.repaymentClaimTrust?.bindingMode,
         reasonCode: result.report.repaymentClaimTrust?.reasonCode,
         supportedForm: result.report.repaymentClaimTrust?.supportedForm,
@@ -4539,6 +4560,8 @@ async function main(): Promise<void> {
         payerEntityId: result.claimValue.payerEntityId,
         payeeEntityId: result.claimValue.payeeEntityId,
         amountSat: result.claimValue.amountSat,
+        claimantAuthoritySource: result.report.repaymentClaimTrust?.claimantAuthoritySource,
+        roleSeparatedAuthorization: result.report.repaymentClaimTrust?.roleSeparatedAuthorization,
         bindingMode: result.report.repaymentClaimTrust?.bindingMode,
         reasonCode: result.report.repaymentClaimTrust?.reasonCode,
         supportedForm: result.report.repaymentClaimTrust?.supportedForm,

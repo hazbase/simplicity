@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createSimplicityClient } from "../dist/index.js";
 import { resolveRuntimeKeyPair } from "./runtimeKeys.mjs";
 
 const RUNTIME_STATE_SCHEMA_VERSION = "policy-e2e-testnet-state/v2";
+const EMPTY_BUFFER_SHA256 = createHash("sha256").update(Buffer.alloc(0)).digest("hex");
 
 function env(name, fallback) {
   return process.env[name] || fallback;
@@ -44,6 +46,68 @@ function defaultRuntimeStatePath(bindingMode, scenario = "generic") {
 function parseJsonEnv(name) {
   const raw = process.env[name];
   return raw ? JSON.parse(raw) : undefined;
+}
+
+function hashHexBytes(hex) {
+  return createHash("sha256").update(Buffer.from(hex, "hex")).digest("hex");
+}
+
+function reverseHexBytes(hex) {
+  return hex.match(/../g)?.reverse().join("") ?? hex;
+}
+
+function encodeExplicitAssetBytesHex(assetHex) {
+  return `01${reverseHexBytes(assetHex.toLowerCase())}`;
+}
+
+function encodeExplicitAmountBytesHex(amountSat) {
+  const amount = Buffer.alloc(9);
+  amount[0] = 0x01;
+  amount.writeBigUInt64BE(BigInt(amountSat), 1);
+  return amount.toString("hex");
+}
+
+async function resolveExplicitAssetHex(sdk, assetId) {
+  if (/^[0-9a-f]{64}$/i.test(assetId)) {
+    return assetId.toLowerCase();
+  }
+  if (String(assetId).toLowerCase() === "bitcoin") {
+    const sidechain = await sdk.rpc.call("getsidechaininfo", []);
+    if (sidechain.pegged_asset && /^[0-9a-f]{64}$/i.test(sidechain.pegged_asset)) {
+      return sidechain.pegged_asset.toLowerCase();
+    }
+  }
+  return undefined;
+}
+
+async function buildAutoNextRawOutput(sdk, input) {
+  if (input.mode !== "explicit-v1-hash-backed") {
+    return null;
+  }
+  const addressInfo = await sdk.rpc.call("getaddressinfo", [input.nextContractAddress]);
+  const scriptPubKeyHex = String(addressInfo.scriptPubKey ?? "").toLowerCase();
+  if (!scriptPubKeyHex) {
+    throw new Error(`Could not derive scriptPubKey for address: ${input.nextContractAddress}`);
+  }
+  const assetHex = await resolveExplicitAssetHex(sdk, input.assetId);
+  if (!assetHex) {
+    throw new Error(`Could not resolve explicit asset hex for assetId: ${input.assetId}`);
+  }
+  return {
+    outputForm: {
+      assetForm: "explicit",
+      amountForm: "explicit",
+      nonceForm: "null",
+      rangeProofForm: "empty",
+    },
+    rawOutput: {
+      assetBytesHex: encodeExplicitAssetBytesHex(assetHex),
+      amountBytesHex: encodeExplicitAmountBytesHex(input.nextAmountSat),
+      nonceBytesHex: "00",
+      scriptPubKeyHashHex: hashHexBytes(scriptPubKeyHex),
+      rangeProofHashHex: EMPTY_BUFFER_SHA256,
+    },
+  };
 }
 
 async function loadRuntimeState(runtimeStatePath) {
@@ -199,6 +263,7 @@ async function main() {
   const nextOutputHash = env("POLICY_NEXT_OUTPUT_HASH", "");
   const nextOutputForm = parseJsonEnv("POLICY_NEXT_OUTPUT_FORM_JSON");
   const nextRawOutput = parseJsonEnv("POLICY_NEXT_RAW_OUTPUT_JSON");
+  const autoNextRawOutputMode = env("POLICY_NEXT_RAW_OUTPUT_AUTO", "");
   const waitTimeoutMs = Number(env("POLICY_WAIT_TIMEOUT_MS", "1800000"));
   const waitPollMs = Number(env("POLICY_WAIT_POLL_MS", "30000"));
 
@@ -287,6 +352,42 @@ async function main() {
     expectedTxId: fundingTxId,
   });
 
+  let effectiveNextOutputForm = nextOutputForm;
+  let effectiveNextRawOutput = nextRawOutput;
+  if (outputBindingMode === "descriptor-bound" && autoNextRawOutputMode && !effectiveNextRawOutput) {
+    const preview = await sdk.policies.prepareTransfer({
+      currentArtifactPath: runtimeState.artifactPath,
+      template,
+      currentStatePath: runtimeState.statePath,
+      nextReceiver: {
+        mode: "policy",
+        recipientXonly: nextRecipientXonly,
+      },
+      nextAmountSat: amountSat,
+      nextParams: {
+        lockDistanceBlocks,
+      },
+      ...(nextOutputHash ? { nextOutputHash } : {}),
+      ...(effectiveNextOutputForm ? { nextOutputForm: effectiveNextOutputForm } : {}),
+      outputBindingMode,
+    });
+    const generated = await buildAutoNextRawOutput(sdk, {
+      mode: autoNextRawOutputMode,
+      nextContractAddress: preview.nextCompiled.contractAddress,
+      nextAmountSat: amountSat,
+      assetId: env("POLICY_ASSET_ID", "bitcoin"),
+    });
+    if (generated) {
+      effectiveNextOutputForm = generated.outputForm;
+      effectiveNextRawOutput = generated.rawOutput;
+      logPhase("prepared-auto-next-raw-output", {
+        nextContractAddress: preview.nextCompiled.contractAddress,
+        assetId: env("POLICY_ASSET_ID", "bitcoin"),
+        mode: autoNextRawOutputMode,
+      });
+    }
+  }
+
   const execution = await sdk.policies.executeTransfer({
     currentArtifactPath: runtimeState.artifactPath,
     template,
@@ -300,8 +401,8 @@ async function main() {
       lockDistanceBlocks,
     },
     ...(nextOutputHash ? { nextOutputHash } : {}),
-    ...(nextOutputForm ? { nextOutputForm } : {}),
-    ...(nextRawOutput ? { nextRawOutput } : {}),
+    ...(effectiveNextOutputForm ? { nextOutputForm: effectiveNextOutputForm } : {}),
+    ...(effectiveNextRawOutput ? { nextRawOutput: effectiveNextRawOutput } : {}),
     outputBindingMode,
     wallet: env("POLICY_WALLET", env("ELEMENTS_RPC_WALLET", "simplicity-test")),
     signer: {

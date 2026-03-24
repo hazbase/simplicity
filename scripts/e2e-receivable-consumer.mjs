@@ -56,7 +56,8 @@ const definition = {
   currencyAssetId: "bitcoin",
   faceValue: 10000,
   dueDate: "2027-12-31T00:00:00Z",
-  controllerXonly: "11".repeat(32),
+  controllerXonly: "33".repeat(32),
+  originatorClaimantXonly: "11".repeat(32),
 };
 
 const originated = {
@@ -66,7 +67,8 @@ const originated = {
   debtorEntityId: "debtor-1",
   holderEntityId: "originator-1",
   currencyAssetId: "bitcoin",
-  controllerXonly: "11".repeat(32),
+  controllerXonly: "33".repeat(32),
+  holderClaimantXonly: "11".repeat(32),
   faceValue: 10000,
   outstandingAmount: 10000,
   repaidAmount: 0,
@@ -84,17 +86,19 @@ const funded = await sdk.receivables.prepareFunding({
   previousStateValue: originated,
   stateId: "REC-001-S1",
   holderEntityId: "fund-1",
+  holderClaimantXonly: "22".repeat(32),
   fundedAt: "2027-01-02T00:00:00Z",
 });
-const repaid = await sdk.receivables.prepareRepayment({
+const partialRepayment = await sdk.receivables.prepareRepayment({
   definitionValue: definition,
   previousStateValue: funded.nextStateValue,
   stateId: "REC-001-S2",
-  amount: 10000,
+  amount: 4000,
   repaidAt: "2027-02-01T00:00:00Z",
 });
 const fundingClaim = buildReceivableFundingClaimDescriptor({
   claimId: "REC-001-FUNDING-CLAIM",
+  definition,
   currentState: funded.nextStateValue,
 });
 const fundingClaimVerified = await sdk.receivables.verifyFundingClaim({
@@ -103,38 +107,79 @@ const fundingClaimVerified = await sdk.receivables.verifyFundingClaim({
   stateHistoryValues: [originated, funded.nextStateValue],
   fundingClaimValue: fundingClaim,
 });
-const repaymentClaim = buildReceivableRepaymentClaimDescriptor({
-  claimId: "REC-001-REPAYMENT-CLAIM",
-  currentState: repaid.nextStateValue,
+const partialRepaymentClaim = buildReceivableRepaymentClaimDescriptor({
+  claimId: "REC-001-REPAYMENT-CLAIM-PARTIAL",
+  currentState: partialRepayment.nextStateValue,
 });
-const repaymentClaimVerified = await sdk.receivables.verifyRepaymentClaim({
+const partialRepaymentClaimVerified = await sdk.receivables.verifyRepaymentClaim({
   definitionValue: definition,
-  currentStateValue: repaid.nextStateValue,
-  stateHistoryValues: [originated, funded.nextStateValue, repaid.nextStateValue],
-  repaymentClaimValue: repaymentClaim,
+  currentStateValue: partialRepayment.nextStateValue,
+  stateHistoryValues: [originated, funded.nextStateValue, partialRepayment.nextStateValue],
+  repaymentClaimValue: partialRepaymentClaim,
+});
+const finalRepayment = await sdk.receivables.prepareRepayment({
+  definitionValue: definition,
+  previousStateValue: partialRepayment.nextStateValue,
+  stateId: "REC-001-S3",
+  amount: 6000,
+  repaidAt: "2027-03-01T00:00:00Z",
+});
+const finalRepaymentClaim = buildReceivableRepaymentClaimDescriptor({
+  claimId: "REC-001-REPAYMENT-CLAIM-FINAL",
+  currentState: finalRepayment.nextStateValue,
+});
+const finalRepaymentClaimVerified = await sdk.receivables.verifyRepaymentClaim({
+  definitionValue: definition,
+  currentStateValue: finalRepayment.nextStateValue,
+  stateHistoryValues: [
+    originated,
+    funded.nextStateValue,
+    partialRepayment.nextStateValue,
+    finalRepayment.nextStateValue,
+  ],
+  repaymentClaimValue: finalRepaymentClaim,
 });
 const closing = await sdk.receivables.prepareClosing({
   definitionValue: definition,
-  latestStateValue: repaid.nextStateValue,
-  stateHistoryValues: [originated, funded.nextStateValue, repaid.nextStateValue],
+  latestStateValue: finalRepayment.nextStateValue,
+  stateHistoryValues: [
+    originated,
+    funded.nextStateValue,
+    partialRepayment.nextStateValue,
+    finalRepayment.nextStateValue,
+  ],
   closingId: "REC-CLOSE-001",
-  closedAt: "2027-02-02T00:00:00Z",
+  closedAt: "2027-03-02T00:00:00Z",
 });
 const finality = await sdk.receivables.exportFinalityPayload({
   definitionValue: definition,
-  stateHistoryValues: [originated, funded.nextStateValue, repaid.nextStateValue],
+  stateHistoryValues: [
+    originated,
+    funded.nextStateValue,
+    partialRepayment.nextStateValue,
+    finalRepayment.nextStateValue,
+  ],
   fundingClaimValue: fundingClaim,
-  repaymentClaimValue: repaymentClaim,
+  repaymentClaimValue: finalRepaymentClaim,
   closingValue: closing.closingValue,
 });
 
 console.log(JSON.stringify({
   fundingVerified: funded.verified,
   fundingClaimVerified: fundingClaimVerified.verified,
-  repaymentVerified: repaid.verified,
-  repaymentClaimVerified: repaymentClaimVerified.verified,
+  fundingClaimAuthoritySource: fundingClaimVerified.report.fundingClaimTrust?.claimantAuthoritySource ?? null,
+  partialRepaymentVerified: partialRepayment.verified,
+  partialRepaymentStatus: partialRepayment.nextStateValue.status,
+  partialRepaymentClaimVerified: partialRepaymentClaimVerified.verified,
+  partialRepaymentClaimAuthoritySource:
+    partialRepaymentClaimVerified.report.repaymentClaimTrust?.claimantAuthoritySource ?? null,
+  finalRepaymentVerified: finalRepayment.verified,
+  finalRepaymentStatus: finalRepayment.nextStateValue.status,
+  finalRepaymentClaimVerified: finalRepaymentClaimVerified.verified,
+  finalRepaymentClaimAuthoritySource:
+    finalRepaymentClaimVerified.report.repaymentClaimTrust?.claimantAuthoritySource ?? null,
   closingVerified: closing.verified,
-  latestStatus: repaid.nextStateValue.status,
+  latestStatus: finalRepayment.nextStateValue.status,
   fullLineageVerified: finality.trustSummary.lineage?.fullLineageVerified ?? false,
   closingReason: finality.closingReason,
   fundingClaimHash: finality.fundingClaimHash,

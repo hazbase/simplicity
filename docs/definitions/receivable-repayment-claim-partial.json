@@ -1,0 +1,13 @@
+{
+  "claimId": "REC-001-REPAYMENT-CLAIM-PARTIAL",
+  "claimKind": "REPAYMENT",
+  "receivableId": "REC-001",
+  "currentStateHash": "34e4db6639ad5b3ccb555320af22fb0eca2ab393ff198602ce5ca69d398cec31",
+  "currentStatus": "PARTIALLY_REPAID",
+  "payerEntityId": "debtor-1",
+  "payeeEntityId": "fund-1",
+  "claimantXonly": "2222222222222222222222222222222222222222222222222222222222222222",
+  "currencyAssetId": "bitcoin",
+  "amountSat": 4000,
+  "eventTimestamp": "2027-02-01T00:00:00Z"
+}

@@ -6,6 +6,7 @@ function setDefaultEnv(name, value) {
 
 const bindingMode = process.env.POLICY_OUTPUT_BINDING_MODE || "descriptor-bound";
 
+setDefaultEnv("POLICY_OUTPUT_BINDING_MODE", bindingMode);
 setDefaultEnv("POLICY_SCENARIO", "restricted-otc");
 setDefaultEnv("POLICY_LOCK_DISTANCE_BLOCKS", "2");
 setDefaultEnv("POLICY_AMOUNT_SAT", "6000");
@@ -15,28 +16,35 @@ setDefaultEnv(
 );
 
 if (bindingMode === "descriptor-bound") {
-  setDefaultEnv("POLICY_ASSET_ID", "unsupported-asset-alias");
+  setDefaultEnv("POLICY_ASSET_ID", "bitcoin");
   setDefaultEnv(
     "POLICY_NEXT_OUTPUT_FORM_JSON",
     JSON.stringify({
-      assetForm: "confidential",
-      amountForm: "confidential",
-      nonceForm: "confidential",
-      rangeProofForm: "non-empty",
+      assetForm: "explicit",
+      amountForm: "explicit",
+      nonceForm: "null",
+      rangeProofForm: "empty",
     }),
   );
-  setDefaultEnv(
-    "POLICY_NEXT_RAW_OUTPUT_JSON",
-    JSON.stringify({
-      assetBytesHex: `01${"22".repeat(32)}`,
-      amountBytesHex: "010000000000001770",
-      nonceBytesHex: "00",
-      scriptPubKeyHashHex: "33".repeat(32),
-      rangeProofHashHex: "44".repeat(32),
-    }),
-  );
+  setDefaultEnv("POLICY_NEXT_RAW_OUTPUT_AUTO", "explicit-v1-hash-backed");
 } else {
   setDefaultEnv("POLICY_ASSET_ID", "bitcoin");
+}
+
+const missingRpcEnv = ["ELEMENTS_RPC_URL", "ELEMENTS_RPC_USER", "ELEMENTS_RPC_PASSWORD"].filter(
+  (name) => !process.env[name],
+);
+
+if (missingRpcEnv.length > 0) {
+  console.log(JSON.stringify({
+    skipped: true,
+    scenario: "restricted-otc",
+    reason: "Elements RPC environment is required for npm run e2e:policy-restricted-otc-testnet",
+    missingEnv: missingRpcEnv,
+    enforcement: "direct-hop",
+    bindingMode,
+  }, null, 2));
+  process.exit(0);
 }
 
 await import("./e2e-policy-testnet.mjs");
