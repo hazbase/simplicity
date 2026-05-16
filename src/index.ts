@@ -2,6 +2,8 @@ export { createSimplicityClient, SimplicityClient } from "./client/SimplicityCli
 export { CompiledContract } from "./client/ContractFactory";
 export { DeployedContract } from "./client/DeployedContract";
 export { RelayerClient } from "./gasless/RelayerClient";
+export { ElementsRpcClient } from "./core/rpc";
+export * from "./x402";
 export * from "./core/types";
 export * from "./core/errors";
 export { listPresets, getPresetOrThrow } from "./core/presets";

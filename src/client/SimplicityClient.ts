@@ -25,6 +25,7 @@ import {
 } from "../core/types";
 import { RelayerClient } from "../gasless/RelayerClient";
 import { GaslessTransferInput, GaslessTransferResult, RelayerClientConfig } from "../gasless/types";
+import * as liquidX402 from "../x402";
 import { CompiledContract } from "./ContractFactory";
 import { DeployedContract } from "./DeployedContract";
 import {
@@ -115,6 +116,16 @@ export class SimplicityClient {
   public readonly rpc: ElementsRpcClient;
   public readonly payments: {
     gaslessTransfer: (input: GaslessTransferInput) => Promise<GaslessTransferResult>;
+    x402: {
+      assets: typeof liquidX402.listLiquidX402Assets;
+      resolveAsset: typeof liquidX402.resolveLiquidX402Asset;
+      buildRequirements: typeof liquidX402.buildLiquidX402Requirements;
+      encodePayment: typeof liquidX402.encodeLiquidXPayment;
+      decodePayment: typeof liquidX402.decodeLiquidXPayment;
+      preparePsetPayment: (input: liquidX402.LiquidX402PreparePsetPaymentInput) => Promise<liquidX402.LiquidX402PreparePsetPaymentResult>;
+      verify: (input: liquidX402.LiquidX402VerifyPaymentInput) => Promise<liquidX402.LiquidX402VerifyPaymentResult>;
+      settle: (input: liquidX402.LiquidX402SettlePaymentInput) => Promise<liquidX402.LiquidX402SettlePaymentResult>;
+    };
   };
   public readonly outputBinding: {
     describeSupport: () => OutputBindingSupportMatrix;
@@ -208,6 +219,16 @@ export class SimplicityClient {
     this.rpc = new ElementsRpcClient(config.rpc);
     this.payments = {
       gaslessTransfer: async (input) => this.gaslessTransfer(input),
+      x402: {
+        assets: liquidX402.listLiquidX402Assets,
+        resolveAsset: liquidX402.resolveLiquidX402Asset,
+        buildRequirements: liquidX402.buildLiquidX402Requirements,
+        encodePayment: liquidX402.encodeLiquidXPayment,
+        decodePayment: liquidX402.decodeLiquidXPayment,
+        preparePsetPayment: async (input) => liquidX402.prepareLiquidX402PsetPayment(this.rpc, input),
+        verify: async (input) => liquidX402.verifyLiquidX402Payment(this.rpc, input),
+        settle: async (input) => liquidX402.settleLiquidX402Payment(this.rpc, input),
+      },
     };
     this.outputBinding = {
       describeSupport: () => describeOutputBindingSupport(),
