@@ -3,10 +3,13 @@ import assert from "node:assert/strict";
 import {
   LIQUID_X402_ASSETS,
   buildLiquidPsetSummaryHash,
+  buildLiquidX402PaymentFromPset,
   buildLiquidX402Requirements,
   decodeLiquidXPayment,
+  deriveLiquidX402LwkWasmAddress,
   encodeLiquidXPayment,
   listLiquidX402Assets,
+  prepareLiquidX402LwkWasmPayment,
   prepareLiquidX402PsetPayment,
   resolveLiquidX402Asset,
   settleLiquidX402Payment,
@@ -46,6 +49,8 @@ test("Liquid x402 registry resolves testnet and mainnet USDt", () => {
   assert.equal(resolveLiquidX402Asset("usdt", "liquidtestnet").assetId, LIQUID_X402_ASSETS.liquidtestnet.usdt.assetId);
   assert.equal(resolveLiquidX402Asset("usdt", "liquidv1").assetId, LIQUID_X402_ASSETS.liquidv1.usdt.assetId);
   assert.equal(resolveLiquidX402Asset("bitcoin", "liquidtestnet").key, "lbtc");
+  assert.equal(resolveLiquidX402Asset(LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId, "liquidtestnet").key, "lbtc");
+  assert.match(resolveLiquidX402Asset("lbtc", "liquidtestnet").assetId, /^[0-9a-f]{64}$/u);
   assert.equal(listLiquidX402Assets("liquidtestnet").length, 2);
 });
 
@@ -70,6 +75,31 @@ test("Liquid x402 requirements and payment header round-trip", () => {
     expiresAt: requirements.extra.expiresAt,
   };
   assert.deepEqual(decodeLiquidXPayment(encodeLiquidXPayment(payload)), payload);
+});
+
+test("Liquid x402 summary hash is stable across decoder-specific change outputs", () => {
+  const requirements = buildRequirement();
+  const withChangeOutput = {
+    outputs: [
+      ...decodedPset.outputs,
+      {
+        amount: 0.00042,
+        asset: LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId,
+        script: {
+          address: "tlq1buyerchange",
+          hex: "0014change",
+        },
+      },
+    ],
+    fees: {
+      bitcoin: 0.0000042,
+    },
+  };
+
+  assert.equal(
+    buildLiquidPsetSummaryHash(decodedPset, requirements),
+    buildLiquidPsetSummaryHash(withChangeOutput, requirements)
+  );
 });
 
 test("Liquid x402 verify validates fields and does not broadcast", async () => {
@@ -192,6 +222,99 @@ test("Liquid x402 prepare builds a signed payment payload", async () => {
   assert.deepEqual(decodeLiquidXPayment(result.xPayment), result.paymentPayload);
 });
 
+test("Liquid x402 builds a payment payload from externally signed PSET", () => {
+  const requirements = buildRequirement();
+  const result = buildLiquidX402PaymentFromPset({
+    requirements,
+    psetBase64: "externally-signed-pset",
+    decoded: decodedPset,
+    payer: "liquid:agent",
+  });
+
+  assert.equal(result.paymentPayload.psetBase64, "externally-signed-pset");
+  assert.equal(result.paymentPayload.payer, "liquid:agent");
+  assert.equal(result.summaryHash, buildLiquidPsetSummaryHash(decodedPset, requirements));
+  assert.deepEqual(decodeLiquidXPayment(result.xPayment), result.paymentPayload);
+});
+
+test("Liquid x402 canonicalizes L-BTC aliases in requirements", () => {
+  const result = buildLiquidX402PaymentFromPset({
+    requirements: {
+      ...buildRequirement(),
+      maxAmountRequired: "1000000",
+      asset: "bitcoin",
+      extra: {
+        ...buildRequirement().extra,
+        asset: "lbtc",
+        assetId: "bitcoin",
+      },
+    },
+    psetBase64: "externally-signed-lbtc-pset",
+    summaryHash: "summary",
+  });
+
+  assert.equal(result.paymentPayload.asset, "lbtc");
+  assert.equal(result.paymentPayload.assetId, LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId);
+});
+
+test("Liquid x402 can prepare a lightweight LWK/WASM payment", async () => {
+  const requirements = buildRequirement();
+  const calls: string[] = [];
+  const fakeLwk = createFakeLwkWasm(calls);
+  const result = await prepareLiquidX402LwkWasmPayment({
+    requirements,
+    mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    payer: "liquid:lwk-agent",
+    feeRate: 0.1,
+    lwk: fakeLwk as any,
+  });
+
+  assert.equal(result.paymentPayload.psetBase64, "lwk-signed-pset");
+  assert.equal(result.paymentPayload.payer, "liquid:lwk-agent");
+  assert.equal(result.descriptor, "ct(slip77,wpkh(fake-xpub))");
+  assert.equal(result.dwid, "fake-dwid");
+  assert.deepEqual(calls, [
+    "Network.testnet",
+    "Signer.wpkhSlip77Descriptor",
+    "Esplora.fullScan",
+    "Wollet.applyUpdate",
+    "TxBuilder.feeRate:0.1",
+    "Address.parse:tlq1payto",
+    `AssetId.fromString:${LIQUID_X402_ASSETS.liquidtestnet.usdt.assetId}`,
+    "TxBuilder.addRecipient:123456789",
+    "TxBuilder.finish",
+    "Signer.sign",
+    "Wollet.finalize",
+    "Wollet.psetDetails",
+  ]);
+  assert.deepEqual(decodeLiquidXPayment(result.xPayment), result.paymentPayload);
+});
+
+test("Liquid x402 can derive a lightweight LWK/WASM funding address", async () => {
+  const calls: string[] = [];
+  const fakeLwk = createFakeLwkWasm(calls);
+  const result = await deriveLiquidX402LwkWasmAddress({
+    mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    network: "liquidtestnet",
+    index: 2,
+    lwk: fakeLwk as any,
+  });
+
+  assert.equal(result.network, "liquidtestnet");
+  assert.equal(result.address, "tlq1funding2");
+  assert.equal(result.unconfidentialAddress, "tlq1funding2-unconfidential");
+  assert.equal(result.index, 2);
+  assert.equal(result.isBlinded, true);
+  assert.equal(result.descriptor, "ct(slip77,wpkh(fake-xpub))");
+  assert.equal(result.dwid, "fake-dwid");
+  assert.equal(result.policyAsset, "policy-asset");
+  assert.deepEqual(calls, [
+    "Network.testnet",
+    "Signer.wpkhSlip77Descriptor",
+    "Wollet.address:2",
+  ]);
+});
+
 test("Liquid x402 settle finalizes, mempool-checks, and broadcasts", async () => {
   const requirements = buildRequirement();
   const summaryHash = buildLiquidPsetSummaryHash(decodedPset, requirements);
@@ -226,3 +349,154 @@ test("Liquid x402 settle finalizes, mempool-checks, and broadcasts", async () =>
   assert.equal(result.transactionHash, "txid-liquid");
   assert.deepEqual(calls, ["decodepsbt", "finalizepsbt", "testmempoolaccept", "sendrawtransaction"]);
 });
+
+function createFakeLwkWasm(calls: string[]) {
+  class FakeAddress {
+    constructor(private readonly value: string) {}
+    static parse(value: string) {
+      calls.push(`Address.parse:${value}`);
+      return new FakeAddress(value);
+    }
+    toString() {
+      return this.value;
+    }
+    toUnconfidential() {
+      return new FakeAddress(`${this.value}-unconfidential`);
+    }
+    isBlinded() {
+      return true;
+    }
+  }
+
+  class FakeAssetId {
+    constructor(private readonly value: string) {}
+    static fromString(value: string) {
+      calls.push(`AssetId.fromString:${value}`);
+      return new FakeAssetId(value);
+    }
+    toString() {
+      return this.value;
+    }
+  }
+
+  class FakeMnemonic {
+    constructor(readonly value: string) {}
+  }
+
+  class FakeNetwork {
+    static mainnet() {
+      calls.push("Network.mainnet");
+      return new FakeNetwork();
+    }
+    static testnet() {
+      calls.push("Network.testnet");
+      return new FakeNetwork();
+    }
+    defaultEsploraClient() {
+      return new FakeEsploraClient();
+    }
+    txBuilder() {
+      return new FakeTxBuilder();
+    }
+    policyAsset() {
+      return { toString: () => "policy-asset" };
+    }
+  }
+
+  class FakeEsploraClient {
+    async fullScan() {
+      calls.push("Esplora.fullScan");
+      return { height: 1 };
+    }
+  }
+
+  class FakeSigner {
+    constructor(readonly mnemonic: FakeMnemonic, readonly network: FakeNetwork) {}
+    wpkhSlip77Descriptor() {
+      calls.push("Signer.wpkhSlip77Descriptor");
+      return { toString: () => "ct(slip77,wpkh(fake-xpub))" };
+    }
+    sign(pset: FakePset) {
+      calls.push("Signer.sign");
+      return pset;
+    }
+  }
+
+  class FakeWollet {
+    constructor(readonly network: FakeNetwork, readonly descriptor: { toString: () => string }) {}
+    applyUpdate() {
+      calls.push("Wollet.applyUpdate");
+    }
+    finalize(pset: FakePset) {
+      calls.push("Wollet.finalize");
+      return pset;
+    }
+    psetDetails() {
+      calls.push("Wollet.psetDetails");
+      return {
+        balance: () => ({
+          fee: () => 100n,
+          recipients: () => [{
+            value: () => 123456789n,
+            asset: () => new FakeAssetId(LIQUID_X402_ASSETS.liquidtestnet.usdt.assetId),
+            address: () => new FakeAddress("tlq1payto"),
+          }],
+        }),
+      };
+    }
+    dwid() {
+      return "fake-dwid";
+    }
+    address(index: number | null) {
+      calls.push(`Wollet.address:${index ?? "next"}`);
+      return {
+        address: () => new FakeAddress(`tlq1funding${index ?? "next"}`),
+        index: () => index ?? 0,
+      };
+    }
+  }
+
+  class FakeTxBuilder {
+    private active = true;
+
+    private consume() {
+      if (!this.active) throw new Error("stale TxBuilder used");
+      this.active = false;
+      return new FakeTxBuilder();
+    }
+
+    feeRate(value: number) {
+      calls.push(`TxBuilder.feeRate:${value}`);
+      return this.consume();
+    }
+    addRecipient(_address: FakeAddress, amount: bigint, _asset: FakeAssetId) {
+      calls.push(`TxBuilder.addRecipient:${amount}`);
+      return this.consume();
+    }
+    addLbtcRecipient(_address: FakeAddress, amount: bigint) {
+      calls.push(`TxBuilder.addLbtcRecipient:${amount}`);
+      return this.consume();
+    }
+    finish() {
+      if (!this.active) throw new Error("stale TxBuilder used");
+      calls.push("TxBuilder.finish");
+      return new FakePset();
+    }
+  }
+
+  class FakePset {
+    toString() {
+      return "lwk-signed-pset";
+    }
+  }
+
+  return {
+    Address: FakeAddress,
+    AssetId: FakeAssetId,
+    EsploraClient: FakeEsploraClient,
+    Mnemonic: FakeMnemonic,
+    Network: FakeNetwork,
+    Signer: FakeSigner,
+    Wollet: FakeWollet,
+  };
+}

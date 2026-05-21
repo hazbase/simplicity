@@ -193,6 +193,22 @@ RECEIVABLE_OUTPUT_BINDING_MODE=script-bound npm run e2e:receivable-testnet
 RECEIVABLE_OUTPUT_BINDING_MODE=descriptor-bound npm run e2e:receivable-testnet
 ```
 
+Liquid x402 buyer smoke test:
+
+```bash
+npm install --no-save lwk_node@^0.17.1
+npm run e2e:x402-lwk-address -- --generate
+npm run e2e:x402-lwk-buyer -- https://share.example/v/slug --dry-run
+LIQUID_X402_E2E_MNEMONIC="..." npm run e2e:x402-lwk-buyer -- https://share.example/v/slug --no-submit
+LIQUID_X402_E2E_MNEMONIC="..." npm run e2e:x402-lwk-buyer -- https://share.example/v/slug --output unlocked.bin
+```
+
+The address script derives a confidential Liquid receive address for funding a
+test buyer wallet. The buyer script then uses LWK locally to scan, build, sign,
+and finalize a Liquid PSET, then sends the resulting `X-PAYMENT` header back to
+the protected URL. `--dry-run` only inspects the 402 requirements, while
+`--no-submit` signs a payment without broadcasting through the seller backend.
+
 These commands are useful both as reproducible checks and as examples of the SDK's current validated surface.
 
 ## Where To Go Next

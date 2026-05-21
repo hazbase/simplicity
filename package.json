@@ -50,6 +50,8 @@
     "e2e:receivable-local": "npm run build && node scripts/e2e-receivable-local.mjs",
     "e2e:receivable-testnet": "npm run build && node scripts/e2e-receivable-testnet.mjs",
     "e2e:receivable-consumer": "npm run build && node scripts/e2e-receivable-consumer.mjs",
+    "e2e:x402-lwk-address": "npm run build && node scripts/e2e-x402-lwk-address.mjs",
+    "e2e:x402-lwk-buyer": "npm run build && node scripts/e2e-x402-lwk-buyer.mjs",
     "e2e:simplicity-relayer": "npm run build && node scripts/e2e-simplicity-relayer.mjs",
     "prepublishOnly": "npm run build"
   },

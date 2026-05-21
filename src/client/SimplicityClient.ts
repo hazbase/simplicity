@@ -123,6 +123,9 @@ export class SimplicityClient {
       encodePayment: typeof liquidX402.encodeLiquidXPayment;
       decodePayment: typeof liquidX402.decodeLiquidXPayment;
       preparePsetPayment: (input: liquidX402.LiquidX402PreparePsetPaymentInput) => Promise<liquidX402.LiquidX402PreparePsetPaymentResult>;
+      buildPaymentFromPset: typeof liquidX402.buildLiquidX402PaymentFromPset;
+      prepareLwkWasmPayment: typeof liquidX402.prepareLiquidX402LwkWasmPayment;
+      deriveLwkWasmAddress: typeof liquidX402.deriveLiquidX402LwkWasmAddress;
       verify: (input: liquidX402.LiquidX402VerifyPaymentInput) => Promise<liquidX402.LiquidX402VerifyPaymentResult>;
       settle: (input: liquidX402.LiquidX402SettlePaymentInput) => Promise<liquidX402.LiquidX402SettlePaymentResult>;
     };
@@ -226,6 +229,9 @@ export class SimplicityClient {
         encodePayment: liquidX402.encodeLiquidXPayment,
         decodePayment: liquidX402.decodeLiquidXPayment,
         preparePsetPayment: async (input) => liquidX402.prepareLiquidX402PsetPayment(this.rpc, input),
+        buildPaymentFromPset: liquidX402.buildLiquidX402PaymentFromPset,
+        prepareLwkWasmPayment: liquidX402.prepareLiquidX402LwkWasmPayment,
+        deriveLwkWasmAddress: liquidX402.deriveLiquidX402LwkWasmAddress,
         verify: async (input) => liquidX402.verifyLiquidX402Payment(this.rpc, input),
         settle: async (input) => liquidX402.settleLiquidX402Payment(this.rpc, input),
       },
