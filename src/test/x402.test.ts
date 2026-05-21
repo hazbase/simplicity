@@ -109,6 +109,13 @@ test("Liquid x402 verify validates fields and does not broadcast", async () => {
   const rpc = {
     call: async (method: string) => {
       calls.push(method);
+      if (method === "validateaddress") {
+        return {
+          isvalid: true,
+          address: "tlq1payto",
+          scriptPubKey: "0014abcdef",
+        };
+      }
       assert.equal(method, "decodepsbt");
       return decodedPset;
     },
@@ -132,7 +139,123 @@ test("Liquid x402 verify validates fields and does not broadcast", async () => {
   });
 
   assert.equal(result.isValid, true);
-  assert.deepEqual(calls, ["decodepsbt"]);
+  assert.deepEqual(calls, ["validateaddress", "decodepsbt"]);
+});
+
+test("Liquid x402 verify accepts confidential payTo decoded as unconfidential output", async () => {
+  const requirements = buildLiquidX402Requirements({
+    paymentRequestId: "payreq_liquid_confidential",
+    resource: "https://seller.example/confidential",
+    payTo: "tlq1sellerconfidential",
+    amountAtomic: "123456789",
+    network: "liquidtestnet",
+    asset: "usdt",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    maxFeeSat: "1200",
+  });
+  const decoded = {
+    outputs: [{
+      amount: 1.23456789,
+      asset: LIQUID_X402_ASSETS.liquidtestnet.usdt.assetId,
+      script: {
+        address: "tex1sellerunconfidential",
+        hex: "0014seller",
+      },
+    }],
+    fees: { bitcoin: 0.000001 },
+  };
+  const calls: string[] = [];
+  const rpc = {
+    call: async (method: string) => {
+      calls.push(method);
+      if (method === "validateaddress") {
+        return {
+          isvalid: true,
+          address: requirements.payTo,
+          unconfidential: "tex1sellerunconfidential",
+          scriptPubKey: "0014seller",
+        };
+      }
+      if (method === "decodepsbt") return decoded;
+      throw new Error(`unexpected method: ${method}`);
+    },
+  };
+
+  const result = await verifyLiquidX402Payment(rpc as any, {
+    requirements,
+    paymentPayload: {
+      scheme: "exact-liquid-pset",
+      network: "liquidtestnet",
+      paymentRequestId: requirements.extra.paymentRequestId,
+      asset: "usdt",
+      assetId: requirements.asset,
+      amountAtomic: requirements.maxAmountRequired,
+      payTo: requirements.payTo,
+      psetBase64: "signed-confidential-pset",
+      summaryHash: buildLiquidPsetSummaryHash(decoded, requirements),
+      expiresAt: requirements.extra.expiresAt,
+    },
+    now: new Date("2026-01-01T00:00:00.000Z"),
+  });
+
+  assert.equal(result.isValid, true);
+  assert.deepEqual(calls, ["validateaddress", "decodepsbt"]);
+});
+
+test("Liquid x402 verify accepts confidential payTo by script hex when decoded address is omitted", async () => {
+  const requirements = buildLiquidX402Requirements({
+    paymentRequestId: "payreq_liquid_confidential_script",
+    resource: "https://seller.example/confidential-script",
+    payTo: "tlq1sellerconfidential",
+    amountAtomic: "123456789",
+    network: "liquidtestnet",
+    asset: "usdt",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    maxFeeSat: "1200",
+  });
+  const decoded = {
+    outputs: [{
+      amount: 1.23456789,
+      asset: LIQUID_X402_ASSETS.liquidtestnet.usdt.assetId,
+      script: {
+        hex: "0014seller",
+      },
+    }],
+    fees: { bitcoin: 0.000001 },
+  };
+  const rpc = {
+    call: async (method: string) => {
+      if (method === "validateaddress") {
+        return {
+          isvalid: true,
+          address: requirements.payTo,
+          unconfidential: "tex1sellerunconfidential",
+          scriptPubKey: "0014seller",
+        };
+      }
+      if (method === "decodepsbt") return decoded;
+      throw new Error(`unexpected method: ${method}`);
+    },
+  };
+
+  const result = await verifyLiquidX402Payment(rpc as any, {
+    requirements,
+    paymentPayload: {
+      scheme: "exact-liquid-pset",
+      network: "liquidtestnet",
+      paymentRequestId: requirements.extra.paymentRequestId,
+      asset: "usdt",
+      assetId: requirements.asset,
+      amountAtomic: requirements.maxAmountRequired,
+      payTo: requirements.payTo,
+      psetBase64: "signed-confidential-pset",
+      summaryHash: buildLiquidPsetSummaryHash(decoded, requirements),
+      expiresAt: requirements.extra.expiresAt,
+    },
+    now: new Date("2026-01-01T00:00:00.000Z"),
+  });
+
+  assert.equal(result.isValid, true);
 });
 
 test("Liquid x402 verify rejects tampered summary and expired payloads", async () => {
@@ -290,6 +413,22 @@ test("Liquid x402 can prepare a lightweight LWK/WASM payment", async () => {
   assert.deepEqual(decodeLiquidXPayment(result.xPayment), result.paymentPayload);
 });
 
+test("Liquid x402 uses explicit asset outputs for non-blinded LWK recipients", async () => {
+  const calls: string[] = [];
+  const fakeLwk = createFakeLwkWasm(calls);
+  await prepareLiquidX402LwkWasmPayment({
+    requirements: {
+      ...buildRequirement(),
+      payTo: "tex1payto",
+    },
+    mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    lwk: fakeLwk as any,
+  });
+
+  assert.ok(calls.includes("TxBuilder.addExplicitRecipient:123456789"));
+  assert.equal(calls.includes("TxBuilder.addRecipient:123456789"), false);
+});
+
 test("Liquid x402 can derive a lightweight LWK/WASM funding address", async () => {
   const calls: string[] = [];
   const fakeLwk = createFakeLwkWasm(calls);
@@ -322,6 +461,13 @@ test("Liquid x402 settle finalizes, mempool-checks, and broadcasts", async () =>
   const rpc = {
     call: async (method: string) => {
       calls.push(method);
+      if (method === "validateaddress") {
+        return {
+          isvalid: true,
+          address: "tlq1payto",
+          scriptPubKey: "0014abcdef",
+        };
+      }
       if (method === "decodepsbt") return decodedPset;
       if (method === "finalizepsbt") return { complete: true, hex: "00" };
       if (method === "testmempoolaccept") return [{ allowed: true }];
@@ -347,7 +493,7 @@ test("Liquid x402 settle finalizes, mempool-checks, and broadcasts", async () =>
   });
   assert.equal(result.success, true);
   assert.equal(result.transactionHash, "txid-liquid");
-  assert.deepEqual(calls, ["decodepsbt", "finalizepsbt", "testmempoolaccept", "sendrawtransaction"]);
+  assert.deepEqual(calls, ["validateaddress", "decodepsbt", "finalizepsbt", "testmempoolaccept", "sendrawtransaction"]);
 });
 
 function createFakeLwkWasm(calls: string[]) {
@@ -364,7 +510,7 @@ function createFakeLwkWasm(calls: string[]) {
       return new FakeAddress(`${this.value}-unconfidential`);
     }
     isBlinded() {
-      return true;
+      return !this.value.startsWith("tex1");
     }
   }
 
@@ -471,6 +617,10 @@ function createFakeLwkWasm(calls: string[]) {
     }
     addRecipient(_address: FakeAddress, amount: bigint, _asset: FakeAssetId) {
       calls.push(`TxBuilder.addRecipient:${amount}`);
+      return this.consume();
+    }
+    addExplicitRecipient(_address: FakeAddress, amount: bigint, _asset: FakeAssetId) {
+      calls.push(`TxBuilder.addExplicitRecipient:${amount}`);
       return this.consume();
     }
     addLbtcRecipient(_address: FakeAddress, amount: bigint) {

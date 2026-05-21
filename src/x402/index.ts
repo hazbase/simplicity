@@ -171,6 +171,10 @@ export type DecodePsbtResult = {
       address?: string;
       hex?: string;
     };
+    scriptPubKey?: {
+      address?: string;
+      hex?: string;
+    };
   }>;
 };
 
@@ -178,6 +182,19 @@ type FinalizePsbtResult = {
   complete?: boolean;
   hex?: string;
   psbt?: string;
+};
+
+type ValidateAddressResult = {
+  isvalid?: boolean;
+  address?: string;
+  unconfidential?: string;
+  confidential?: string;
+  scriptPubKey?: string;
+};
+
+type ExpectedLiquidOutputTarget = {
+  addresses: Set<string>;
+  scriptHexes: Set<string>;
 };
 
 export type LiquidX402LwkWasmModule = {
@@ -419,6 +436,8 @@ export async function prepareLiquidX402LwkWasmPayment(
   const amount = BigInt(requirements.maxAmountRequired);
   if (requirements.extra.asset === "lbtc") {
     builder = builder.addLbtcRecipient(recipient, amount);
+  } else if (typeof recipient.isBlinded === "function" && recipient.isBlinded() === false && typeof builder.addExplicitRecipient === "function") {
+    builder = builder.addExplicitRecipient(recipient, amount, parseLwkAssetId(lwk, requirements.asset));
   } else {
     builder = builder.addRecipient(recipient, amount, parseLwkAssetId(lwk, requirements.asset));
   }
@@ -478,12 +497,13 @@ export async function verifyLiquidX402Payment(
     return basic;
   }
   try {
+    const expectedTarget = await resolveExpectedLiquidOutputTarget(rpc, requirements);
     const decoded = await rpc.call<DecodePsbtResult>("decodepsbt", [payload.psetBase64]);
     const actualSummaryHash = buildLiquidPsetSummaryHash(decoded, requirements);
     if (actualSummaryHash !== payload.summaryHash) {
       return { ...basic, isValid: false, invalidReason: "pset_summary_mismatch" };
     }
-    if (!decodedContainsExpectedOutput(decoded, requirements)) {
+    if (!decodedContainsExpectedOutput(decoded, requirements, expectedTarget)) {
       return { ...basic, isValid: false, invalidReason: "pset_expected_output_missing" };
     }
     if (!decodedFeeWithinCap(decoded, requirements)) {
@@ -597,15 +617,74 @@ export function buildLiquidPsetSummaryHash(
 
 function decodedContainsExpectedOutput(
   decoded: DecodePsbtResult,
-  requirements: LiquidX402PaymentRequirements
+  requirements: LiquidX402PaymentRequirements,
+  expectedTarget: ExpectedLiquidOutputTarget = buildFallbackExpectedLiquidOutputTarget(requirements)
 ): boolean {
   const expectedAmount = atomicToDecimalNumber(requirements.maxAmountRequired, requirements.extra.decimals);
   return (decoded.outputs ?? []).some((output) => (
     String(output.asset ?? "").toLowerCase() === requirements.asset.toLowerCase() &&
     Math.round(Number(output.amount ?? 0) * 10 ** requirements.extra.decimals) ===
       Math.round(expectedAmount * 10 ** requirements.extra.decimals) &&
-    String(output.script?.address ?? "") === requirements.payTo
+    decodedOutputMatchesLiquidTarget(output, expectedTarget)
   ));
+}
+
+async function resolveExpectedLiquidOutputTarget(
+  rpc: ElementsRpcClient,
+  requirements: LiquidX402PaymentRequirements
+): Promise<ExpectedLiquidOutputTarget> {
+  const target = buildFallbackExpectedLiquidOutputTarget(requirements);
+  try {
+    const info = await rpc.call<ValidateAddressResult>("validateaddress", [requirements.payTo]);
+    if (info?.isvalid !== false) {
+      addNormalizedAddress(target.addresses, info.address);
+      addNormalizedAddress(target.addresses, info.unconfidential);
+      addNormalizedAddress(target.addresses, info.confidential);
+      addNormalizedHex(target.scriptHexes, info.scriptPubKey);
+    }
+  } catch {
+    // Older or mocked RPC clients may not expose validateaddress. Exact payTo
+    // matching remains safe for unconfidential outputs in that case.
+  }
+  return target;
+}
+
+function buildFallbackExpectedLiquidOutputTarget(
+  requirements: LiquidX402PaymentRequirements
+): ExpectedLiquidOutputTarget {
+  const target: ExpectedLiquidOutputTarget = { addresses: new Set(), scriptHexes: new Set() };
+  addNormalizedAddress(target.addresses, requirements.payTo);
+  return target;
+}
+
+function decodedOutputMatchesLiquidTarget(
+  output: NonNullable<DecodePsbtResult["outputs"]>[number],
+  expectedTarget: ExpectedLiquidOutputTarget
+): boolean {
+  const address = output.script?.address ?? output.scriptPubKey?.address;
+  const scriptHex = output.script?.hex ?? output.scriptPubKey?.hex;
+  return (
+    expectedTarget.addresses.has(normalizeAddressForComparison(address)) ||
+    expectedTarget.scriptHexes.has(normalizeHexForComparison(scriptHex))
+  );
+}
+
+function addNormalizedAddress(target: Set<string>, value: unknown): void {
+  const normalized = normalizeAddressForComparison(value);
+  if (normalized) target.add(normalized);
+}
+
+function addNormalizedHex(target: Set<string>, value: unknown): void {
+  const normalized = normalizeHexForComparison(value);
+  if (normalized) target.add(normalized);
+}
+
+function normalizeAddressForComparison(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeHexForComparison(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().replace(/^0x/u, "");
 }
 
 function coerceRequirements(value: LiquidX402PaymentRequirements | Record<string, unknown>): LiquidX402PaymentRequirements {
@@ -684,7 +763,15 @@ function ensureLwkWasmNodeTimerCompat(): void {
 }
 
 function parseLwkAddress(lwk: LiquidX402LwkWasmModule, address: string, network: any) {
-  return typeof lwk.Address.parse === "function" ? lwk.Address.parse(address, network) : new lwk.Address(address);
+  if (typeof lwk.Address.parse === "function") {
+    try {
+      return lwk.Address.parse(address, network);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("non-blinded")) throw error;
+    }
+  }
+  return new lwk.Address(address);
 }
 
 function parseLwkAssetId(lwk: LiquidX402LwkWasmModule, assetId: string) {
