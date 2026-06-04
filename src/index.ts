@@ -153,6 +153,36 @@ export {
   verifyReceivableStateHistory as verifyReceivableStateHistoryValidation,
 } from "./domain/receivableValidation";
 export {
+  RWA_DVP_DELIVERY_CLAIM_SCHEMA_VERSION,
+  RWA_DVP_EVIDENCE_SCHEMA_VERSION,
+  RWA_DVP_PURCHASE_SCHEMA_VERSION,
+  RWA_DVP_REFUND_CLAIM_SCHEMA_VERSION,
+  RWA_DVP_VERIFICATION_SCHEMA_VERSION,
+  buildPaymentRequirements as buildRwaDvpPaymentRequirements,
+  definePurchase as defineRwaDvpPurchase,
+  exportEvidence as exportRwaDvpEvidence,
+  prepareDeliveryClaim as prepareRwaDvpDeliveryClaim,
+  prepareRefundClaim as prepareRwaDvpRefundClaim,
+  summarizePurchase as summarizeRwaDvpPurchase,
+  verifyDeliveryClaim as verifyRwaDvpDeliveryClaim,
+  verifyPaymentPset as verifyRwaDvpPaymentPset,
+  verifyRefundClaim as verifyRwaDvpRefundClaim,
+} from "./domain/rwaDvp";
+export type {
+  RwaDvpDefinePurchaseInput,
+  RwaDvpDeliveryClaimDescriptor,
+  RwaDvpEvidenceBundle,
+  RwaDvpEvmLockReference,
+  RwaDvpPaymentAsset,
+  RwaDvpPreparedPurchase,
+  RwaDvpPrepareDeliveryClaimInput,
+  RwaDvpPrepareRefundClaimInput,
+  RwaDvpPurchaseDefinition,
+  RwaDvpRefundClaimDescriptor,
+  RwaDvpSummary,
+  RwaDvpVerificationReport,
+} from "./domain/rwaDvp";
+export {
   compilePolicyStateContract,
   buildPolicyOutputDescriptor,
   listPolicyTemplates,

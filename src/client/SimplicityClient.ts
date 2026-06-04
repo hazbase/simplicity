@@ -26,6 +26,7 @@ import {
 import { RelayerClient } from "../gasless/RelayerClient";
 import { GaslessTransferInput, GaslessTransferResult, RelayerClientConfig } from "../gasless/types";
 import * as liquidX402 from "../x402";
+import * as rwaDvp from "../domain/rwaDvp";
 import { CompiledContract } from "./ContractFactory";
 import { DeployedContract } from "./DeployedContract";
 import {
@@ -134,6 +135,16 @@ export class SimplicityClient {
     describeSupport: () => OutputBindingSupportMatrix;
     evaluateSupport: (input: Parameters<typeof evaluateOutputBindingSupport>[0]) => OutputBindingSupportEvaluation;
   };
+  public readonly rwaDvp: {
+    definePurchase: (input: Parameters<typeof rwaDvp.definePurchase>[1]) => ReturnType<typeof rwaDvp.definePurchase>;
+    buildPaymentRequirements: (input: Parameters<typeof rwaDvp.buildPaymentRequirements>[1]) => ReturnType<typeof rwaDvp.buildPaymentRequirements>;
+    verifyPaymentPset: (input: Parameters<typeof rwaDvp.verifyPaymentPset>[1]) => ReturnType<typeof rwaDvp.verifyPaymentPset>;
+    prepareDeliveryClaim: (input: Parameters<typeof rwaDvp.prepareDeliveryClaim>[1]) => ReturnType<typeof rwaDvp.prepareDeliveryClaim>;
+    verifyDeliveryClaim: (input: Parameters<typeof rwaDvp.verifyDeliveryClaim>[1]) => ReturnType<typeof rwaDvp.verifyDeliveryClaim>;
+    prepareRefundClaim: (input: Parameters<typeof rwaDvp.prepareRefundClaim>[1]) => ReturnType<typeof rwaDvp.prepareRefundClaim>;
+    verifyRefundClaim: (input: Parameters<typeof rwaDvp.verifyRefundClaim>[1]) => ReturnType<typeof rwaDvp.verifyRefundClaim>;
+    exportEvidence: (input: Parameters<typeof rwaDvp.exportEvidence>[1]) => ReturnType<typeof rwaDvp.exportEvidence>;
+  };
   public readonly policies: {
     listTemplates: () => ReturnType<typeof listPolicyTemplates>;
     describeTemplate: (input: Parameters<typeof describePolicyTemplate>[0]) => ReturnType<typeof describePolicyTemplate>;
@@ -239,6 +250,16 @@ export class SimplicityClient {
     this.outputBinding = {
       describeSupport: () => describeOutputBindingSupport(),
       evaluateSupport: (input) => evaluateOutputBindingSupport(input),
+    };
+    this.rwaDvp = {
+      definePurchase: (input) => rwaDvp.definePurchase(this, input),
+      buildPaymentRequirements: (input) => rwaDvp.buildPaymentRequirements(this, input),
+      verifyPaymentPset: (input) => rwaDvp.verifyPaymentPset(this, input),
+      prepareDeliveryClaim: (input) => rwaDvp.prepareDeliveryClaim(this, input),
+      verifyDeliveryClaim: (input) => rwaDvp.verifyDeliveryClaim(this, input),
+      prepareRefundClaim: (input) => rwaDvp.prepareRefundClaim(this, input),
+      verifyRefundClaim: (input) => rwaDvp.verifyRefundClaim(this, input),
+      exportEvidence: (input) => rwaDvp.exportEvidence(this, input),
     };
     this.policies = {
       listTemplates: () => listPolicyTemplates(),
