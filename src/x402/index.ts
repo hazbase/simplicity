@@ -529,7 +529,7 @@ export async function settleLiquidX402Payment(
     if (!finalized.complete || !finalized.hex) {
       return { success: false, errorCode: "pset_not_complete", summaryHash: payload.summaryHash };
     }
-    const mempool = await rpc.call<Array<{ allowed?: boolean; reject_reason?: string }>>(
+    const mempool = await rpc.call<Array<{ allowed?: boolean; reject_reason?: string; "reject-reason"?: string }>>(
       "testmempoolaccept",
       [[finalized.hex]],
       input.wallet
@@ -537,7 +537,7 @@ export async function settleLiquidX402Payment(
     if (mempool[0]?.allowed !== true) {
       return {
         success: false,
-        errorCode: mempool[0]?.reject_reason || "mempool_rejected",
+        errorCode: mempoolRejectReason(mempool[0]),
         rawTxHex: finalized.hex,
         summaryHash: payload.summaryHash,
       };
@@ -685,6 +685,12 @@ function normalizeAddressForComparison(value: unknown): string {
 
 function normalizeHexForComparison(value: unknown): string {
   return String(value ?? "").trim().toLowerCase().replace(/^0x/u, "");
+}
+
+function mempoolRejectReason(result: unknown): string {
+  if (!result || typeof result !== "object") return "mempool_rejected";
+  const raw = result as Record<string, unknown>;
+  return String(raw["reject-reason"] ?? raw.reject_reason ?? raw.error ?? "mempool_rejected").trim() || "mempool_rejected";
 }
 
 function coerceRequirements(value: LiquidX402PaymentRequirements | Record<string, unknown>): LiquidX402PaymentRequirements {

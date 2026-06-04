@@ -496,6 +496,46 @@ test("Liquid x402 settle finalizes, mempool-checks, and broadcasts", async () =>
   assert.deepEqual(calls, ["validateaddress", "decodepsbt", "finalizepsbt", "testmempoolaccept", "sendrawtransaction"]);
 });
 
+test("Liquid x402 settle surfaces Elements mempool reject reasons", async () => {
+  const requirements = buildRequirement();
+  const summaryHash = buildLiquidPsetSummaryHash(decodedPset, requirements);
+  const rpc = {
+    call: async (method: string) => {
+      if (method === "validateaddress") {
+        return {
+          isvalid: true,
+          address: "tlq1payto",
+          scriptPubKey: "0014abcdef",
+        };
+      }
+      if (method === "decodepsbt") return decodedPset;
+      if (method === "finalizepsbt") return { complete: true, hex: "00" };
+      if (method === "testmempoolaccept") return [{ allowed: false, "reject-reason": "bad-txns-inputs-missingorspent" }];
+      throw new Error(`unexpected method: ${method}`);
+    },
+  };
+
+  const result = await settleLiquidX402Payment(rpc as any, {
+    requirements,
+    paymentPayload: {
+      scheme: "exact-liquid-pset",
+      network: "liquidtestnet",
+      paymentRequestId: requirements.extra.paymentRequestId,
+      asset: "usdt",
+      assetId: requirements.asset,
+      amountAtomic: requirements.maxAmountRequired,
+      payTo: requirements.payTo,
+      psetBase64: "signed-pset",
+      summaryHash,
+      expiresAt: requirements.extra.expiresAt,
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "bad-txns-inputs-missingorspent");
+  assert.equal(result.rawTxHex, "00");
+});
+
 function createFakeLwkWasm(calls: string[]) {
   class FakeAddress {
     constructor(private readonly value: string) {}
