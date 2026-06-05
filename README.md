@@ -152,6 +152,18 @@ Main entrypoints:
 Representative example:
 - [show-receivable-business-flow.ts](./examples/show-receivable-business-flow.ts)
 
+### RWA DvP and Liquid x402
+
+Use `sdk.rwaDvp` when a purchase flow needs a Liquid PSET payment request,
+delivery/refund claim descriptors, and an evidence bundle that ties the Liquid
+payment and delivery to an external lock or allocation record.
+
+For standard Liquid assets, `payment.asset` can be `"lbtc"` or `"usdt"`. If a
+testnet issuer or deployment uses a different USDt asset id, set
+`payment.asset: "usdt"` and pass the explicit `payment.assetId`; the generated
+payment requirements will preserve that asset id instead of replacing it with
+the SDK's default registry id.
+
 ## CLI and Confidence Commands
 
 ### Validation Surface

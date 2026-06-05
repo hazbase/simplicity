@@ -312,6 +312,7 @@ export function buildPaymentRequirements(
     amountAtomic: input.purchase.payment.amountAtomic,
     network: input.purchase.network,
     asset: input.purchase.payment.asset,
+    assetId: input.purchase.payment.assetId,
     description: input.description ?? "Hazbase RWA Liquid delivery-versus-payment",
     mimeType: input.mimeType ?? "application/json",
     maxTimeoutSeconds: input.maxTimeoutSeconds,

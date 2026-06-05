@@ -25,6 +25,7 @@ export interface LiquidX402RequirementsInput {
   amountAtomic: string | number | bigint;
   network?: LiquidX402Network;
   asset?: LiquidX402AssetKey | string;
+  assetId?: string;
   description?: string;
   mimeType?: string;
   maxTimeoutSeconds?: number;
@@ -280,6 +281,7 @@ export function resolveLiquidX402Asset(
 export function buildLiquidX402Requirements(input: LiquidX402RequirementsInput): LiquidX402PaymentRequirements {
   const network = normalizeNetwork(input.network ?? LIQUID_X402_DEFAULT_NETWORK);
   const asset = resolveLiquidX402Asset(input.asset ?? "usdt", network);
+  const assetId = resolveLiquidX402AssetId(input.assetId, asset);
   const amountAtomic = normalizeAmountAtomic(input.amountAtomic);
   const expiresAt = normalizeExpiresAt(input.expiresAt, input.maxTimeoutSeconds);
   const description = String(input.description ?? "").trim() || "Unlock resource";
@@ -301,11 +303,11 @@ export function buildLiquidX402Requirements(input: LiquidX402RequirementsInput):
     mimeType,
     payTo,
     maxTimeoutSeconds,
-    asset: asset.assetId,
+    asset: assetId,
     extra: {
       paymentRequestId,
       asset: asset.key,
-      assetId: asset.assetId,
+      assetId,
       decimals: asset.decimals,
       expiresAt,
       feeAsset: "lbtc",
@@ -849,6 +851,12 @@ function isLiquidAssetAlias(input: unknown): boolean {
     value === "usdt" ||
     value === "usdt-liquid" ||
     value === "tether";
+}
+
+function resolveLiquidX402AssetId(input: unknown, asset: LiquidX402Asset): string {
+  const value = String(input ?? "").trim();
+  if (!value) return asset.assetId;
+  return isLiquidAssetAlias(value) ? asset.assetId : value;
 }
 
 function normalizeAmountAtomic(input: string | number | bigint): string {

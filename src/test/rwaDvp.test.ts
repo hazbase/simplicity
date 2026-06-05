@@ -96,6 +96,68 @@ test("sdk.rwaDvp prepares payment requirements and verifies a basic PSET payload
   assert.equal(verified.paymentRequestId, "rwa-order-1");
 });
 
+test("sdk.rwaDvp preserves explicit USDt asset ids in payment requirements", async () => {
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const customUsdtAssetId = "2c73c81d00b38443b76b337095e58766ba91c0eaa5045d99f0721266a1620502";
+  const prepared = sdk.rwaDvp.definePurchase({
+    purchaseId: "rwa-order-usdt",
+    network: "liquidtestnet",
+    evmLock: {
+      chainId: 11155111,
+      lockManager: "0x8C4686Fe684FB2eEc7aA2eEe4175EAc70206C881",
+      orderKey: "0x" + "12".repeat(32),
+      amountAtomic: "1000",
+    },
+    payment: {
+      asset: "usdt",
+      assetId: customUsdtAssetId,
+      amountAtomic: "50000",
+      escrowAddress: "tlq1escrow",
+      treasuryAddress: "tlq1treasury",
+    },
+    delivery: {
+      assetId: "aa".repeat(32),
+      amountAtomic: "1000",
+      recipientAddress: "tlq1buyer",
+    },
+    refund: {
+      recipientAddress: "tlq1refund",
+      after: "2099-01-01T00:00:00.000Z",
+    },
+    expiresAt: "2099-01-01T00:30:00.000Z",
+  });
+  const requirements = sdk.rwaDvp.buildPaymentRequirements({
+    purchase: prepared.definition,
+    resource: "https://settlement.example/v1/orders/rwa-order-usdt/payments/liquid-pset",
+  });
+
+  assert.equal(prepared.definition.payment.assetId, customUsdtAssetId);
+  assert.equal(requirements.asset, customUsdtAssetId);
+  assert.equal(requirements.extra.asset, "usdt");
+  assert.equal(requirements.extra.assetId, customUsdtAssetId);
+
+  const payload = {
+    scheme: "exact-liquid-pset" as const,
+    network: "liquidtestnet" as const,
+    paymentRequestId: requirements.extra.paymentRequestId,
+    asset: "usdt" as const,
+    assetId: customUsdtAssetId,
+    amountAtomic: requirements.maxAmountRequired,
+    payTo: requirements.payTo,
+    psetBase64: "cHNldA==",
+    summaryHash: buildLiquidPsetSummaryHash({}, requirements),
+    expiresAt: requirements.extra.expiresAt,
+  };
+  const verified = await sdk.rwaDvp.verifyPaymentPset({
+    purchase: prepared.definition,
+    requirements,
+    paymentPayload: payload,
+    verifyPsetOutputs: false,
+  });
+  assert.equal(verified.isValid, true);
+  assert.equal(payload.assetId, requirements.asset);
+});
+
 test("rwaDvp delivery and refund descriptors are deterministic and verifiable", () => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   const prepared = buildPurchase();
