@@ -11,3 +11,4 @@ dist
 docs/case-studies/
 docs/design/*runtime-validation.md
 docs/consumer-validation/
+docs/security-audit*

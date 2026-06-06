@@ -209,6 +209,11 @@ test("rwaDvp delivery and refund descriptors are deterministic and verifiable", 
 test("rwaDvp client surface is exposed", () => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   assert.equal(typeof sdk.rwaDvp.definePurchase, "function");
+  assert.equal(typeof sdk.rwaDvp.compileEscrowContract, "function");
   assert.equal(typeof sdk.rwaDvp.prepareDeliveryClaim, "function");
+  assert.equal(typeof sdk.rwaDvp.inspectDeliveryClaim, "function");
+  assert.equal(typeof sdk.rwaDvp.executeDeliveryClaim, "function");
   assert.equal(typeof sdk.rwaDvp.prepareRefundClaim, "function");
+  assert.equal(typeof sdk.rwaDvp.inspectRefundClaim, "function");
+  assert.equal(typeof sdk.rwaDvp.executeRefundClaim, "function");
 });

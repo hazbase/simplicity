@@ -21,7 +21,16 @@ export async function runCommand(
     });
     return { stdout: stdout.trim(), stderr: stderr.trim() };
   } catch (error) {
-    throw new ToolchainError(`Command failed: ${command} ${args.join(" ")}`, error);
+    const cause = error as { message?: string; stdout?: string; stderr?: string };
+    const details = [
+      cause.message ? `message=${cause.message}` : "",
+      cause.stderr ? `stderr=${cause.stderr.trim()}` : "",
+      cause.stdout ? `stdout=${cause.stdout.trim()}` : "",
+    ].filter(Boolean);
+    throw new ToolchainError(
+      `Command failed: ${command} ${args.slice(0, 3).join(" ")}${details.length ? ` | ${details.join(" | ")}` : ""}`,
+      error,
+    );
   }
 }
 
@@ -64,6 +73,21 @@ export async function runHalUpdateInput(
     cmr,
     "-p",
     internalKey,
+  ]);
+  return JSON.parse(result.stdout);
+}
+
+export async function runHalCreatePset(
+  halPath: string,
+  inputs: Array<{ txid: string; vout: number; sequence?: number }>,
+  outputs: Array<{ address: string; asset: string; amount: number }>
+): Promise<unknown> {
+  const result = await runCommand(halPath, [
+    "simplicity",
+    "pset",
+    "create",
+    JSON.stringify(inputs),
+    JSON.stringify(outputs),
   ]);
   return JSON.parse(result.stdout);
 }

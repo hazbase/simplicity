@@ -164,6 +164,34 @@ testnet issuer or deployment uses a different USDt asset id, set
 payment requirements will preserve that asset id instead of replacing it with
 the SDK's default registry id.
 
+Typical entrypoints:
+- `sdk.rwaDvp.definePurchase(...)`
+- `sdk.rwaDvp.buildPaymentRequirements(...)`
+- `sdk.rwaDvp.verifyPaymentPset(...)`
+- `sdk.rwaDvp.compileEscrowContract(...)`
+- `sdk.rwaDvp.prepareDeliveryClaim(...)`
+- `sdk.rwaDvp.inspectDeliveryClaim(...)`
+- `sdk.rwaDvp.executeDeliveryClaim(...)`
+- `sdk.rwaDvp.prepareRefundClaim(...)`
+- `sdk.rwaDvp.inspectRefundClaim(...)`
+- `sdk.rwaDvp.executeRefundClaim(...)`
+- `sdk.rwaDvp.exportEvidence(...)`
+
+For a delivery claim, the operator spends the funded escrow output and sends
+the payment asset to the treasury while delivering the RWA asset to the buyer.
+For a refund claim, the operator spends the same escrow output after the
+configured timeout and returns the payment asset to the buyer. The inspect
+methods build and validate the candidate spend without broadcasting it; the
+execute methods finalize the Simplicity input, optionally test mempool
+acceptance, and broadcast when `broadcast: true`.
+
+The claim execution helpers assume the Elements wallet can provide any extra
+inputs needed for RWA delivery and L-BTC fees. You can also pass explicit
+`extraInputs` when the service wants deterministic coin selection. Script-bound
+delivery/refund output checks are the practical default; descriptor-bound checks
+should be used only when the caller can provide the exact output data required
+by the descriptor.
+
 ## CLI and Confidence Commands
 
 ### Validation Surface

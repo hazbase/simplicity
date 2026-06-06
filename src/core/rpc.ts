@@ -28,7 +28,9 @@ export class ElementsRpcClient {
     };
 
     if (!response.ok || payload.error) {
-      throw new ExecutionError(`RPC ${method} failed`, {
+      const rpcMessage = payload.error?.message ? `: ${payload.error.message}` : "";
+      const rpcCode = payload.error?.code === undefined ? "" : ` (code ${payload.error.code})`;
+      throw new ExecutionError(`RPC ${method} failed${rpcCode}${rpcMessage}`, {
         status: response.status,
         error: payload.error,
       });

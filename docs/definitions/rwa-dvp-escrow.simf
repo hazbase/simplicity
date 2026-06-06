@@ -1,0 +1,128 @@
+/*
+ * RWA DvP escrow machine.
+ *
+ * Delivery path:
+ * - output 0 is the payment asset sent to treasury.
+ * - output 1 is the Liquid RWA asset sent to the buyer.
+ *
+ * Refund path:
+ * - output 0 is the payment asset returned to the refund recipient after
+ *   TIMEOUT_HEIGHT.
+ *
+ * The SDK supplies output hash/script hash witnesses and signs sig_all_hash,
+ * so the operator signature covers the full transaction assembled by the SDK.
+ */
+fn not(bit: bool) -> bool {
+    <u1>::into(jet::complement_1(<bool>::into(bit)))
+}
+
+fn require_hash_anchor(value: u256) {
+    let zero_hash: u256 = 0x0000000000000000000000000000000000000000000000000000000000000000;
+    assert!(not(jet::eq_256(value, zero_hash)));
+}
+
+fn require_terms_anchor() {
+    let terms_hash: u256 = 0x{{TERMS_HASH}};
+    require_hash_anchor(terms_hash);
+}
+
+fn require_policy_anchor() {
+    let policy_hash: u256 = 0x{{POLICY_HASH}};
+    require_hash_anchor(policy_hash);
+}
+
+fn require_bound_output(actual_output_hash: u256, actual_script_hash: u256, expected_output_hash: u256, expected_script_hash: u256, binding_mode: u8) {
+    match jet::eq_8(binding_mode, 0x03) {
+        true => {},
+        false => match jet::eq_8(binding_mode, 0x01) {
+            true => assert!(jet::eq_256(actual_output_hash, expected_output_hash)),
+            false => assert!(jet::eq_256(actual_script_hash, expected_script_hash)),
+        },
+    };
+}
+
+fn require_output_0(expected_output_hash: u256, expected_script_hash: u256, binding_mode: u8) {
+    let actual_output_hash: u256 = match jet::output_hash(0) {
+        Some(output_hash : u256) => output_hash,
+        None => panic!(),
+    };
+    let actual_script_hash: u256 = unwrap(jet::output_script_hash(0));
+    require_bound_output(actual_output_hash, actual_script_hash, expected_output_hash, expected_script_hash, binding_mode);
+}
+
+fn require_output_1(expected_output_hash: u256, expected_script_hash: u256, binding_mode: u8) {
+    let actual_output_hash: u256 = match jet::output_hash(1) {
+        Some(output_hash : u256) => output_hash,
+        None => panic!(),
+    };
+    let actual_script_hash: u256 = unwrap(jet::output_script_hash(1));
+    require_bound_output(actual_output_hash, actual_script_hash, expected_output_hash, expected_script_hash, binding_mode);
+}
+
+fn checksig(sig: Signature) {
+    let signer: Pubkey = 0x{{OPERATOR_XONLY}};
+    jet::bip_0340_verify((signer, jet::sig_all_hash()), sig);
+}
+
+fn delivery_spend(
+    payment_output_hash: u256,
+    payment_output_script_hash: u256,
+    payment_output_binding_mode: u8,
+    rwa_output_hash: u256,
+    rwa_output_script_hash: u256,
+    rwa_output_binding_mode: u8,
+    signer_signature: Signature
+) {
+    require_output_0(
+        payment_output_hash,
+        payment_output_script_hash,
+        payment_output_binding_mode
+    );
+    require_output_1(
+        rwa_output_hash,
+        rwa_output_script_hash,
+        rwa_output_binding_mode
+    );
+    checksig(signer_signature);
+}
+
+fn refund_spend(
+    refund_output_hash: u256,
+    refund_output_script_hash: u256,
+    refund_output_binding_mode: u8,
+    signer_signature: Signature
+) {
+    jet::check_lock_height({{TIMEOUT_HEIGHT}});
+    require_output_0(
+        refund_output_hash,
+        refund_output_script_hash,
+        refund_output_binding_mode
+    );
+    checksig(signer_signature);
+}
+
+fn main() {
+    require_terms_anchor();
+    require_policy_anchor();
+    let signer_signature: Signature = witness::SIGNER_SIGNATURE;
+    match witness::DELIVERY_OR_REFUND {
+        Some(marker: u8) => {
+            assert!(jet::eq_8(marker, 0x01));
+            delivery_spend(
+                witness::PAYMENT_OUTPUT_HASH,
+                witness::PAYMENT_OUTPUT_SCRIPT_HASH,
+                witness::PAYMENT_OUTPUT_BINDING_MODE,
+                witness::RWA_OUTPUT_HASH,
+                witness::RWA_OUTPUT_SCRIPT_HASH,
+                witness::RWA_OUTPUT_BINDING_MODE,
+                signer_signature
+            )
+        },
+        None => refund_spend(
+            witness::REFUND_OUTPUT_HASH,
+            witness::REFUND_OUTPUT_SCRIPT_HASH,
+            witness::REFUND_OUTPUT_BINDING_MODE,
+            signer_signature
+        ),
+    }
+}

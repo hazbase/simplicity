@@ -355,6 +355,51 @@ export interface ExecuteResult {
   contractUtxo: ContractUtxo;
 }
 
+export interface MultiAssetContractInput {
+  txid: string;
+  vout: number;
+  asset: string;
+  amountSat: number;
+  sequence?: number;
+}
+
+export interface MultiAssetContractOutput {
+  address: string;
+  asset: string;
+  amountSat: number;
+}
+
+export interface MultiAssetContractCallInput {
+  wallet: string;
+  signer: SignerConfig;
+  witness?: WitnessConfig;
+  contractInput?: {
+    txid: string;
+    vout?: number;
+    asset?: string;
+    amountSat?: number;
+  };
+  extraInputs?: MultiAssetContractInput[];
+  outputs: MultiAssetContractOutput[];
+  feeSat?: number;
+  changeAddress?: string;
+  purpose?: string;
+  locktimeHeight?: number;
+  broadcast?: boolean;
+}
+
+export interface MultiAssetInspectResult extends InspectResult {
+  extraInputs: MultiAssetContractInput[];
+  requestedOutputs: MultiAssetContractOutput[];
+  changeOutputs: MultiAssetContractOutput[];
+}
+
+export interface MultiAssetExecuteResult extends ExecuteResult {
+  extraInputs: MultiAssetContractInput[];
+  requestedOutputs: MultiAssetContractOutput[];
+  changeOutputs: MultiAssetContractOutput[];
+}
+
 export interface GaslessExecuteInput {
   relayer?: import("../gasless/RelayerClient").RelayerClient;
   fromLabel?: string;

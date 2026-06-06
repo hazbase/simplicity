@@ -13,6 +13,7 @@ import { renderTemplate } from "./templating";
 import { getPresetOrThrow, validateWitnessConfig } from "./presets";
 import {
   runCommand,
+  runHalCreatePset,
   runHalExtract,
   runHalFinalize,
   runHalSighash,
@@ -27,6 +28,11 @@ import {
   GaslessExecuteResult,
   InspectCallInput,
   InspectResult,
+  MultiAssetContractInput,
+  MultiAssetContractCallInput,
+  MultiAssetContractOutput,
+  MultiAssetExecuteResult,
+  MultiAssetInspectResult,
   PsetSummary,
   SimplicityArtifact,
   SimplicityClientConfig,
@@ -77,6 +83,11 @@ function btcStringToSatNumber(btcStr: string): number {
   return Math.round(x * 1e8);
 }
 
+function optionalBtcStringToSatNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  return btcStringToSatNumber(String(value));
+}
+
 function satToBtcNumber(sat: number): number {
   return Number((sat / 1e8).toFixed(8));
 }
@@ -86,6 +97,27 @@ function satToBtcStringFromNumber(sat: number): string {
   const whole = value / 100000000n;
   const frac = value % 100000000n;
   return `${whole}.${frac.toString().padStart(8, "0")}`;
+}
+
+function normalizeAssetId(asset: string): string {
+  return asset.trim().toLowerCase();
+}
+
+function addAssetAmount(target: Map<string, number>, asset: string, amountSat: number): void {
+  if (!Number.isSafeInteger(amountSat) || amountSat < 0) {
+    throw new ValidationError("amountSat must be a non-negative safe integer");
+  }
+  const key = normalizeAssetId(asset);
+  target.set(key, (target.get(key) ?? 0) + amountSat);
+}
+
+async function resolveLbtcAssetId(config: SimplicityClientConfig): Promise<string> {
+  const sidechain = await callRpc<{ pegged_asset?: string }>(config, "getsidechaininfo", []);
+  const asset = sidechain.pegged_asset;
+  if (asset && /^[0-9a-f]{64}$/i.test(asset)) {
+    return asset.toLowerCase();
+  }
+  return "bitcoin";
 }
 
 function getArtifactLocktime(artifact: SimplicityArtifact): number {
@@ -109,7 +141,7 @@ function getArtifactLocktime(artifact: SimplicityArtifact): number {
 
 function getEffectiveLocktime(
   artifact: SimplicityArtifact,
-  input: InspectCallInput | ExecuteCallInput | GaslessExecuteInput
+  input: InspectCallInput | ExecuteCallInput | GaslessExecuteInput | MultiAssetContractCallInput
 ): number {
   const candidate = input.locktimeHeight;
   if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
@@ -207,7 +239,7 @@ async function scanUtxosByAddress(
       vout: number;
       scriptPubKey: string;
       asset: string;
-      amount: string;
+      amount?: string;
       height?: number;
     }>;
   }>(config, "scantxoutset", ["start", [`addr(${contractAddress})`]]);
@@ -219,7 +251,7 @@ async function scanUtxosByAddress(
     vout: utxo.vout,
     scriptPubKey: utxo.scriptPubKey,
     asset: utxo.asset,
-    sat: btcStringToSatNumber(String(utxo.amount)),
+    sat: optionalBtcStringToSatNumber(utxo.amount) ?? 0,
     height: utxo.height,
     confirmed: true,
   }));
@@ -558,6 +590,276 @@ export async function findContractUtxos(
   return scanUtxosByAddress(config, artifact.compiled.contractAddress);
 }
 
+function findRequestedContractUtxo(
+  utxos: ContractUtxo[],
+  input?: MultiAssetContractCallInput["contractInput"],
+): ContractUtxo | null {
+  if (!input) return null;
+  const requested = utxos.find((utxo) => (
+    utxo.txid === input.txid
+    && (input.vout === undefined || utxo.vout === input.vout)
+  )) ?? null;
+  if (!requested) return null;
+  return {
+    ...requested,
+    asset: input.asset ?? requested.asset,
+    sat: input.amountSat ?? requested.sat,
+  };
+}
+
+async function buildMultiAssetExecutionState(
+  config: SimplicityClientConfig,
+  artifact: SimplicityArtifact,
+  input: MultiAssetContractCallInput,
+): Promise<{
+  psetBase64: string;
+  summary: PsetSummary;
+  summaryHash: string;
+  summaryCanonicalJson: string;
+  contractUtxo: ContractUtxo;
+  extraInputs: MultiAssetContractInput[];
+  requestedOutputs: MultiAssetContractOutput[];
+  changeOutputs: MultiAssetContractOutput[];
+}> {
+  await callRpc<Record<string, any>>(config, "getwalletinfo", [], input.wallet);
+  if (input.outputs.length === 0) {
+    throw new ValidationError("outputs must contain at least one recipient");
+  }
+
+  const contractUtxos = await scanUtxosByAddress(config, artifact.compiled.contractAddress);
+  const feeSat = input.feeSat ?? config.defaults?.feeSat ?? DEFAULT_FEE_SAT;
+  const requested = findRequestedContractUtxo(contractUtxos, input.contractInput);
+  const contractUtxo = requested ?? chooseUtxo(contractUtxos, 1, config.defaults?.utxoPolicy ?? "smallest_over");
+  if (!contractUtxo) {
+    throw new UtxoNotFoundError(`No contract UTXO found for address=${artifact.compiled.contractAddress}`);
+  }
+
+  const extraInputs = input.extraInputs ?? [];
+  const inputTotals = new Map<string, number>();
+  addAssetAmount(inputTotals, contractUtxo.asset, contractUtxo.sat);
+  for (const extra of extraInputs) {
+    addAssetAmount(inputTotals, extra.asset, extra.amountSat);
+  }
+
+  const lbtcAssetId = await resolveLbtcAssetId(config);
+  const outputTotals = new Map<string, number>();
+  for (const output of input.outputs) {
+    addAssetAmount(outputTotals, output.asset, output.amountSat);
+  }
+  addAssetAmount(outputTotals, lbtcAssetId, feeSat);
+
+  const changeOutputs: MultiAssetContractOutput[] = [];
+  const changeAddress = input.changeAddress
+    ? (await getAddressInfo(config, input.wallet, input.changeAddress)).unconfidential ?? input.changeAddress
+    : (await allocateWalletAddress(config, input.wallet)).address;
+  const assetKeys = Array.from(new Set([...inputTotals.keys(), ...outputTotals.keys()])).sort();
+  for (const asset of assetKeys) {
+    const available = inputTotals.get(asset) ?? 0;
+    const required = outputTotals.get(asset) ?? 0;
+    if (available < required) {
+      throw new ValidationError("Insufficient inputs for multi-asset contract call", {
+        asset,
+        available,
+        required,
+      });
+    }
+    const changeSat = available - required;
+    if (changeSat > 0) {
+      changeOutputs.push({
+        address: changeAddress,
+        asset,
+        amountSat: changeSat,
+      });
+    }
+  }
+
+  const inputsJson = [
+    {
+      txid: contractUtxo.txid,
+      vout: contractUtxo.vout,
+      sequence: input.locktimeHeight ? DEFAULT_SEQUENCE : DEFAULT_SEQUENCE,
+    },
+    ...extraInputs.map((extra) => ({
+      txid: extra.txid,
+      vout: extra.vout,
+      sequence: extra.sequence ?? DEFAULT_SEQUENCE,
+    })),
+  ];
+  const psetOutputs = await Promise.all(
+    [...input.outputs, ...changeOutputs].map(async (output) => ({
+      ...output,
+      address: (await getAddressInfo(config, input.wallet, output.address)).unconfidential ?? output.address,
+    })),
+  );
+  const outputsJson: Array<Record<string, number | string>> = [
+    ...psetOutputs.map((output) => ({
+      [output.address]: satToBtcNumber(output.amountSat),
+      asset: output.asset,
+    })),
+    { fee: satToBtcNumber(feeSat) },
+  ];
+  const halOutputsJson = [
+    ...psetOutputs.map((output) => ({
+      address: output.address,
+      asset: output.asset,
+      amount: satToBtcNumber(output.amountSat),
+    })),
+    {
+      address: "fee",
+      asset: lbtcAssetId,
+      amount: satToBtcNumber(feeSat),
+    },
+  ];
+
+  const locktime = getEffectiveLocktime(artifact, input);
+  const pset1 = locktime
+    ? await callRpc<string>(
+        config,
+        "createpsbt",
+        [inputsJson, outputsJson, locktime, true],
+        input.wallet,
+      )
+    : ((await runHalCreatePset(
+        config.toolchain.halSimplicityPath,
+        inputsJson,
+        halOutputsJson,
+      )) as { pset?: string }).pset;
+  if (!pset1) {
+    throw new ExecutionError("pset create did not return a pset");
+  }
+  const contractSpec = `${contractUtxo.scriptPubKey}:${contractUtxo.asset}:${satToBtcStringFromNumber(contractUtxo.sat)}`;
+  const contractUpdated = (await runHalUpdateInput(
+    config.toolchain.halSimplicityPath,
+    pset1,
+    0,
+    contractSpec,
+    artifact.compiled.cmr,
+    artifact.compiled.internalKey,
+  )) as { pset?: string };
+  if (!contractUpdated.pset) {
+    throw new ExecutionError("update-input did not return a pset", contractUpdated);
+  }
+  const psetUpdated = await callRpc<string>(config, "utxoupdatepsbt", [contractUpdated.pset], input.wallet);
+
+  const decoded = await decodePsbt(config, psetUpdated, input.wallet);
+  const summary = buildPsetSummary(decoded, {
+    network: artifact.network,
+    purpose: input.purpose ?? "sdk_multi_asset_contract_call",
+    bondDefinitionId: null,
+    definitionType: artifact.definition?.definitionType,
+    definitionId: artifact.definition?.definitionId,
+    definitionHash: artifact.definition?.hash,
+    definitionTrustMode: artifact.definition?.trustMode,
+    definitionAnchorMode: artifact.definition?.anchorMode,
+    stateType: artifact.state?.stateType,
+    stateId: artifact.state?.stateId,
+    stateHash: artifact.state?.hash,
+    stateTrustMode: artifact.state?.trustMode,
+    stateAnchorMode: artifact.state?.anchorMode,
+    expectedLiquidReceiver: input.outputs[0]?.address,
+    contractAddress: artifact.compiled.contractAddress,
+    cmr: artifact.compiled.cmr,
+    internalKey: artifact.compiled.internalKey,
+    program: artifact.compiled.program,
+    minHeight: locktime || undefined,
+  });
+  const { canonicalJson: summaryCanonicalJson, hash: summaryHash } = summarize(summary);
+
+  return {
+    psetBase64: psetUpdated,
+    summary,
+    summaryHash,
+    summaryCanonicalJson,
+    contractUtxo,
+    extraInputs,
+    requestedOutputs: psetOutputs,
+    changeOutputs,
+  };
+}
+
+export async function inspectMultiAssetContractCall(
+  config: SimplicityClientConfig,
+  artifact: SimplicityArtifact,
+  input: MultiAssetContractCallInput,
+): Promise<MultiAssetInspectResult> {
+  const state = await buildMultiAssetExecutionState(config, artifact, input);
+  return {
+    mode: "inspect",
+    summary: state.summary,
+    summaryHash: state.summaryHash,
+    summaryCanonicalJson: state.summaryCanonicalJson,
+    psetBase64: state.psetBase64,
+    contractUtxo: state.contractUtxo,
+    warnings: [],
+    extraInputs: state.extraInputs,
+    requestedOutputs: state.requestedOutputs,
+    changeOutputs: state.changeOutputs,
+  };
+}
+
+export async function executeMultiAssetContractCall(
+  config: SimplicityClientConfig,
+  artifact: SimplicityArtifact,
+  input: MultiAssetContractCallInput,
+): Promise<MultiAssetExecuteResult> {
+  const state = await buildMultiAssetExecutionState(config, artifact, input);
+  const contractSignedPset = await signContractInput(
+    config,
+    artifact,
+    state.psetBase64,
+    input.signer.privkeyHex,
+    input.witness,
+  );
+  const walletSignedParsed = await callRpc<{ psbt?: string; complete?: boolean }>(
+    config,
+    "walletprocesspsbt",
+    [contractSignedPset, true, "ALL", true],
+    input.wallet,
+  );
+  if (!walletSignedParsed.psbt) {
+    throw new ExecutionError("walletprocesspsbt did not return a signed pset", walletSignedParsed);
+  }
+
+  const finalizedParsed = await callRpc<{ complete?: boolean; hex?: string }>(
+    config,
+    "finalizepsbt",
+    [walletSignedParsed.psbt, true],
+  );
+  if (!finalizedParsed.complete || !finalizedParsed.hex) {
+    throw new ExecutionError("PSET was not complete after wallet signing", finalizedParsed);
+  }
+  const rawTxHex = normalizeRawTx(finalizedParsed.hex);
+
+  let txId: string | undefined;
+  if (input.broadcast) {
+    const mempoolParsed = await callRpc<Array<{ allowed?: boolean }>>(
+      config,
+      "testmempoolaccept",
+      [[rawTxHex]],
+      input.wallet,
+    );
+    if (!Array.isArray(mempoolParsed) || mempoolParsed[0]?.allowed !== true) {
+      throw new ExecutionError("testmempoolaccept rejected transaction", mempoolParsed);
+    }
+    txId = await callRpc<string>(config, "sendrawtransaction", [rawTxHex], input.wallet);
+  }
+
+  return {
+    mode: "execute",
+    summary: state.summary,
+    summaryHash: state.summaryHash,
+    summaryCanonicalJson: state.summaryCanonicalJson,
+    psetBase64: walletSignedParsed.psbt,
+    rawTxHex,
+    txId,
+    broadcasted: Boolean(input.broadcast),
+    contractUtxo: state.contractUtxo,
+    extraInputs: state.extraInputs,
+    requestedOutputs: state.requestedOutputs,
+    changeOutputs: state.changeOutputs,
+  };
+}
+
 export async function executeGaslessContractCall(
   config: SimplicityClientConfig,
   artifact: SimplicityArtifact,
@@ -776,9 +1078,12 @@ async function signContractInput(
     0,
     artifact.compiled.program,
     witness
-  )) as { pset?: string };
+  )) as { pset?: string; error?: string };
   if (!contractFinalized.pset) {
-    throw new ExecutionError("finalize did not return a pset", contractFinalized);
+    throw new ExecutionError(
+      `finalize did not return a pset${contractFinalized.error ? `: ${contractFinalized.error}` : ""}`,
+      contractFinalized,
+    );
   }
   return contractFinalized.pset;
 }

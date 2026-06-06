@@ -139,10 +139,15 @@ export class SimplicityClient {
     definePurchase: (input: Parameters<typeof rwaDvp.definePurchase>[1]) => ReturnType<typeof rwaDvp.definePurchase>;
     buildPaymentRequirements: (input: Parameters<typeof rwaDvp.buildPaymentRequirements>[1]) => ReturnType<typeof rwaDvp.buildPaymentRequirements>;
     verifyPaymentPset: (input: Parameters<typeof rwaDvp.verifyPaymentPset>[1]) => ReturnType<typeof rwaDvp.verifyPaymentPset>;
+    compileEscrowContract: (input: Parameters<typeof rwaDvp.compileEscrowContract>[1]) => ReturnType<typeof rwaDvp.compileEscrowContract>;
     prepareDeliveryClaim: (input: Parameters<typeof rwaDvp.prepareDeliveryClaim>[1]) => ReturnType<typeof rwaDvp.prepareDeliveryClaim>;
     verifyDeliveryClaim: (input: Parameters<typeof rwaDvp.verifyDeliveryClaim>[1]) => ReturnType<typeof rwaDvp.verifyDeliveryClaim>;
+    inspectDeliveryClaim: (input: Parameters<typeof rwaDvp.inspectDeliveryClaim>[1]) => ReturnType<typeof rwaDvp.inspectDeliveryClaim>;
+    executeDeliveryClaim: (input: Parameters<typeof rwaDvp.executeDeliveryClaim>[1]) => ReturnType<typeof rwaDvp.executeDeliveryClaim>;
     prepareRefundClaim: (input: Parameters<typeof rwaDvp.prepareRefundClaim>[1]) => ReturnType<typeof rwaDvp.prepareRefundClaim>;
     verifyRefundClaim: (input: Parameters<typeof rwaDvp.verifyRefundClaim>[1]) => ReturnType<typeof rwaDvp.verifyRefundClaim>;
+    inspectRefundClaim: (input: Parameters<typeof rwaDvp.inspectRefundClaim>[1]) => ReturnType<typeof rwaDvp.inspectRefundClaim>;
+    executeRefundClaim: (input: Parameters<typeof rwaDvp.executeRefundClaim>[1]) => ReturnType<typeof rwaDvp.executeRefundClaim>;
     exportEvidence: (input: Parameters<typeof rwaDvp.exportEvidence>[1]) => ReturnType<typeof rwaDvp.exportEvidence>;
   };
   public readonly policies: {
@@ -255,10 +260,15 @@ export class SimplicityClient {
       definePurchase: (input) => rwaDvp.definePurchase(this, input),
       buildPaymentRequirements: (input) => rwaDvp.buildPaymentRequirements(this, input),
       verifyPaymentPset: (input) => rwaDvp.verifyPaymentPset(this, input),
+      compileEscrowContract: (input) => rwaDvp.compileEscrowContract(this, input),
       prepareDeliveryClaim: (input) => rwaDvp.prepareDeliveryClaim(this, input),
       verifyDeliveryClaim: (input) => rwaDvp.verifyDeliveryClaim(this, input),
+      inspectDeliveryClaim: (input) => rwaDvp.inspectDeliveryClaim(this, input),
+      executeDeliveryClaim: (input) => rwaDvp.executeDeliveryClaim(this, input),
       prepareRefundClaim: (input) => rwaDvp.prepareRefundClaim(this, input),
       verifyRefundClaim: (input) => rwaDvp.verifyRefundClaim(this, input),
+      inspectRefundClaim: (input) => rwaDvp.inspectRefundClaim(this, input),
+      executeRefundClaim: (input) => rwaDvp.executeRefundClaim(this, input),
       exportEvidence: (input) => rwaDvp.exportEvidence(this, input),
     };
     this.policies = {

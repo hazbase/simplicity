@@ -1,7 +1,33 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { SimplicityClient } from "../client/SimplicityClient";
 import { ValidationError } from "../core/errors";
+import { executeMultiAssetContractCall, inspectMultiAssetContractCall } from "../core/executor";
+import {
+  analyzeOutputRawFields,
+  computeExplicitV1OutputHash,
+  computeRawOutputV1Hash,
+  getScriptPubKeyHexViaRpc,
+  hashHexBytes,
+  isExplicitV1OutputForm,
+  normalizeOutputForm,
+  normalizeOutputRawFields,
+  resolveExplicitAssetHex,
+} from "../core/outputBinding";
 import { sha256HexUtf8, stableStringify } from "../core/summary";
-import type { BondOutputBindingMode, OutputRawFields } from "../core/types";
+import type {
+  BondOutputBindingMode,
+  MultiAssetContractCallInput,
+  MultiAssetContractInput,
+  MultiAssetContractOutput,
+  MultiAssetExecuteResult,
+  MultiAssetInspectResult,
+  OutputForm,
+  OutputRawFields,
+  SignerConfig,
+  SimplicityArtifact,
+  WitnessConfig,
+} from "../core/types";
 import {
   buildLiquidX402Requirements,
   resolveLiquidX402Asset,
@@ -213,6 +239,84 @@ export interface RwaDvpPrepareRefundClaimInput {
   feeOutputIndex?: number;
   refundTxid?: string;
   createdAt?: string | Date;
+}
+
+export interface RwaDvpCompileEscrowContractInput {
+  purchase: RwaDvpPurchaseDefinition;
+  operatorXonly: string;
+  timeoutHeight: number;
+  simfPath?: string;
+}
+
+export interface RwaDvpCompiledEscrowContract {
+  compiled: Awaited<ReturnType<SimplicityClient["compileFromFile"]>>;
+  artifact: SimplicityArtifact;
+  contractAddress: string;
+  timeoutHeight: number;
+  termsHash: string;
+  policyHash: string;
+}
+
+export interface RwaDvpClaimOutputBinding {
+  outputHash: string;
+  outputScriptHash: string;
+  bindingMode: BondOutputBindingMode;
+}
+
+export interface RwaDvpClaimExecutionBaseInput {
+  purchase: RwaDvpPurchaseDefinition;
+  artifactPath?: string;
+  artifact?: SimplicityArtifact;
+  wallet: string;
+  signer: SignerConfig;
+  feeSat?: number;
+  changeAddress?: string;
+  extraInputs?: MultiAssetContractInput[];
+  witness?: WitnessConfig;
+  locktimeHeight?: number;
+}
+
+export interface RwaDvpInspectDeliveryClaimInput extends RwaDvpClaimExecutionBaseInput {
+  descriptor: RwaDvpDeliveryClaimDescriptor;
+}
+
+export interface RwaDvpExecuteDeliveryClaimInput extends RwaDvpInspectDeliveryClaimInput {
+  broadcast?: boolean;
+}
+
+export interface RwaDvpInspectRefundClaimInput extends RwaDvpClaimExecutionBaseInput {
+  descriptor: RwaDvpRefundClaimDescriptor;
+}
+
+export interface RwaDvpExecuteRefundClaimInput extends RwaDvpInspectRefundClaimInput {
+  broadcast?: boolean;
+}
+
+export interface RwaDvpDeliveryClaimInspection {
+  descriptor: RwaDvpDeliveryClaimDescriptor;
+  verification: RwaDvpVerificationReport;
+  outputBinding: {
+    paymentToTreasury: RwaDvpClaimOutputBinding;
+    rwaToBuyer: RwaDvpClaimOutputBinding;
+  };
+  inspect: MultiAssetInspectResult;
+}
+
+export interface RwaDvpDeliveryClaimExecution extends Omit<RwaDvpDeliveryClaimInspection, "inspect"> {
+  execution: MultiAssetExecuteResult;
+}
+
+export interface RwaDvpRefundClaimInspection {
+  descriptor: RwaDvpRefundClaimDescriptor;
+  verification: RwaDvpVerificationReport;
+  outputBinding: {
+    refund: RwaDvpClaimOutputBinding;
+  };
+  inspect: MultiAssetInspectResult;
+}
+
+export interface RwaDvpRefundClaimExecution extends Omit<RwaDvpRefundClaimInspection, "inspect"> {
+  execution: MultiAssetExecuteResult;
 }
 
 export interface RwaDvpVerificationReport {
@@ -485,6 +589,505 @@ export function verifyRefundClaim(
     fee: Number.isInteger(input.descriptor.fee.maxFeeSat) && input.descriptor.fee.maxFeeSat >= 0,
   };
   return report(input.purchase.purchaseId, termsHash, policyHash, checks, "RWA DvP refund claim descriptor mismatch");
+}
+
+const ZERO_HASH_256 = "0000000000000000000000000000000000000000000000000000000000000000";
+
+interface WalletListUnspentResult {
+  txid: string;
+  vout: number;
+  amount: number | string;
+  asset: string;
+  spendable?: boolean;
+  safe?: boolean;
+}
+
+function resolveRwaDvpDocsAsset(filename: string): string {
+  const cwdCandidate = path.resolve(process.cwd(), "docs/definitions", filename);
+  if (existsSync(cwdCandidate)) return cwdCandidate;
+  return path.resolve(__dirname, "../docs/definitions", filename);
+}
+
+function assertXonly(value: string, field: string): string {
+  const normalized = value.trim().toLowerCase().replace(/^0x/u, "");
+  if (!/^[0-9a-f]{64}$/u.test(normalized)) {
+    throw new ValidationError(`${field} must be a 32-byte x-only public key`);
+  }
+  return normalized;
+}
+
+function atomicToSafeSat(value: string | number | bigint, field: string): number {
+  const normalized = normalizeInteger(value);
+  const amount = BigInt(normalized);
+  if (amount > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ValidationError(`${field} exceeds JavaScript safe integer range`);
+  }
+  return Number(amount);
+}
+
+function decimalToSat(value: number | string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new ValidationError(`Invalid Liquid amount: ${String(value)}`);
+  }
+  return Math.round(parsed * 100_000_000);
+}
+
+function sameOutpoint(left: { txid: string; vout: number }, right: { txid?: string; vout?: number }): boolean {
+  return left.txid === right.txid && (right.vout === undefined || left.vout === right.vout);
+}
+
+function assetEquals(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+async function resolveWalletLbtcAssetId(sdk: SimplicityClient, network: LiquidX402Network): Promise<string> {
+  const sidechain = await sdk.rpc.call<{ pegged_asset?: string }>("getsidechaininfo").catch(() => null);
+  const peggedAsset = sidechain?.pegged_asset;
+  if (peggedAsset && /^[0-9a-f]{64}$/iu.test(peggedAsset)) {
+    return peggedAsset.toLowerCase();
+  }
+  return resolveLiquidX402Asset("lbtc", network).assetId;
+}
+
+async function listWalletInputs(sdk: SimplicityClient, wallet: string): Promise<MultiAssetContractInput[]> {
+  const entries = await sdk.rpc.call<WalletListUnspentResult[]>("listunspent", [0, 9999999, [], true], wallet);
+  return entries
+    .filter((entry) => entry.spendable !== false)
+    .filter((entry) => entry.safe !== false)
+    .map((entry) => ({
+      txid: entry.txid,
+      vout: entry.vout,
+      asset: entry.asset,
+      amountSat: decimalToSat(entry.amount),
+    }));
+}
+
+function selectInputsForAsset(input: {
+  candidates: MultiAssetContractInput[];
+  assetId: string;
+  requiredSat: number;
+  exclude?: Set<string>;
+  preferred?: { txid?: string; vout?: number };
+}): MultiAssetContractInput[] {
+  if (input.requiredSat <= 0) return [];
+  const exclude = input.exclude ?? new Set<string>();
+  const key = (entry: MultiAssetContractInput) => `${entry.txid}:${entry.vout}`;
+  const matches = input.candidates
+    .filter((entry) => assetEquals(entry.asset, input.assetId))
+    .filter((entry) => !exclude.has(key(entry)));
+  const preferred = input.preferred?.txid
+    ? matches.find((entry) => sameOutpoint(entry, input.preferred ?? {}))
+    : undefined;
+  if (preferred) {
+    if (preferred.amountSat < input.requiredSat) {
+      throw new ValidationError("Preferred wallet input is smaller than the required amount", {
+        assetId: input.assetId,
+        requiredSat: input.requiredSat,
+        preferredAmountSat: preferred.amountSat,
+      });
+    }
+    exclude.add(key(preferred));
+    return [preferred];
+  }
+
+  const selected: MultiAssetContractInput[] = [];
+  let total = 0;
+  for (const candidate of matches.slice().sort((a, b) => a.amountSat - b.amountSat)) {
+    selected.push(candidate);
+    exclude.add(key(candidate));
+    total += candidate.amountSat;
+    if (total >= input.requiredSat) return selected;
+  }
+  throw new ValidationError("No wallet inputs satisfy the required asset amount", {
+    assetId: input.assetId,
+    requiredSat: input.requiredSat,
+    availableSat: total,
+  });
+}
+
+async function resolveDeliveryExtraInputs(
+  sdk: SimplicityClient,
+  input: RwaDvpInspectDeliveryClaimInput,
+): Promise<MultiAssetContractInput[]> {
+  if (input.extraInputs) return input.extraInputs;
+  const candidates = await listWalletInputs(sdk, input.wallet);
+  const exclude = new Set<string>();
+  const rwa = selectInputsForAsset({
+    candidates,
+    assetId: input.descriptor.outputs.rwaToBuyer.assetId,
+    requiredSat: atomicToSafeSat(input.descriptor.outputs.rwaToBuyer.amountAtomic, "delivery.amountAtomic"),
+    exclude,
+    preferred: input.descriptor.operatorRwaInput?.txid
+      ? { txid: input.descriptor.operatorRwaInput.txid, vout: input.descriptor.operatorRwaInput.vout }
+      : undefined,
+  });
+  const fee = selectInputsForAsset({
+    candidates,
+    assetId: await resolveWalletLbtcAssetId(sdk, input.purchase.network),
+    requiredSat: input.feeSat ?? input.descriptor.fee.maxFeeSat,
+    exclude,
+  });
+  return [...rwa, ...fee];
+}
+
+async function resolveRefundExtraInputs(
+  sdk: SimplicityClient,
+  input: RwaDvpInspectRefundClaimInput,
+): Promise<MultiAssetContractInput[]> {
+  if (input.extraInputs) return input.extraInputs;
+  const candidates = await listWalletInputs(sdk, input.wallet);
+  return selectInputsForAsset({
+    candidates,
+    assetId: await resolveWalletLbtcAssetId(sdk, input.purchase.network),
+    requiredSat: input.feeSat ?? input.descriptor.fee.maxFeeSat,
+  });
+}
+
+async function loadClaimArtifact(
+  sdk: SimplicityClient,
+  input: RwaDvpClaimExecutionBaseInput,
+): Promise<SimplicityArtifact> {
+  if (input.artifact) return input.artifact;
+  if (input.artifactPath) return (await sdk.loadArtifact(input.artifactPath)).artifact;
+  throw new ValidationError("artifact or artifactPath is required for RWA DvP claim execution");
+}
+
+function modeToWitnessValue(mode: BondOutputBindingMode): string {
+  if (mode === "descriptor-bound") return "0x01";
+  if (mode === "script-bound") return "0x02";
+  return "0x03";
+}
+
+async function resolveClaimOutputBinding(
+  sdk: SimplicityClient,
+  input: {
+    recipientAddress: string;
+    assetId: string;
+    amountAtomic: string;
+    outputBindingMode: BondOutputBindingMode;
+    rawOutput?: Partial<OutputRawFields>;
+    outputForm?: Partial<OutputForm>;
+  },
+): Promise<RwaDvpClaimOutputBinding> {
+  const scriptPubKeyHex = await getScriptPubKeyHexViaRpc(sdk, input.recipientAddress);
+  const outputScriptHash = hashHexBytes(scriptPubKeyHex);
+  const rawOutput = normalizeOutputRawFields(input.rawOutput);
+  const rawOutputAnalysis = analyzeOutputRawFields(rawOutput);
+  const outputForm = normalizeOutputForm(input.outputForm);
+  let outputHash = ZERO_HASH_256;
+
+  if (input.outputBindingMode === "descriptor-bound") {
+    if (rawOutputAnalysis.valid && rawOutputAnalysis.normalized) {
+      outputHash = computeRawOutputV1Hash(rawOutputAnalysis.normalized);
+    } else if (isExplicitV1OutputForm(outputForm)) {
+      const assetHex = await resolveExplicitAssetHex(sdk, input.assetId);
+      if (!assetHex) {
+        throw new ValidationError("descriptor-bound output requires a 64-hex asset id or rawOutput fields", {
+          assetId: input.assetId,
+        });
+      }
+      outputHash = computeExplicitV1OutputHash({
+        assetHex,
+        nextAmountSat: atomicToSafeSat(input.amountAtomic, "output.amountAtomic"),
+        nextOutputScriptHash: outputScriptHash,
+      });
+    } else {
+      throw new ValidationError("descriptor-bound output requires explicit-v1 or raw-output-v1 fields");
+    }
+  }
+
+  return {
+    outputHash,
+    outputScriptHash: input.outputBindingMode === "none" ? ZERO_HASH_256 : outputScriptHash,
+    bindingMode: input.outputBindingMode,
+  };
+}
+
+function claimWitness(input: {
+  base?: WitnessConfig;
+  delivery: boolean;
+  payment?: RwaDvpClaimOutputBinding;
+  rwa?: RwaDvpClaimOutputBinding;
+  refund?: RwaDvpClaimOutputBinding;
+}): WitnessConfig {
+  const values: NonNullable<WitnessConfig["values"]> = {
+    ...(input.base?.values ?? {}),
+    DELIVERY_OR_REFUND: {
+      type: "Option<u8>",
+      value: input.delivery ? "Some(0x01)" : "None",
+    },
+    PAYMENT_OUTPUT_HASH: {
+      type: "u256",
+      value: `0x${input.payment?.outputHash ?? ZERO_HASH_256}`,
+    },
+    PAYMENT_OUTPUT_SCRIPT_HASH: {
+      type: "u256",
+      value: `0x${input.payment?.outputScriptHash ?? ZERO_HASH_256}`,
+    },
+    PAYMENT_OUTPUT_BINDING_MODE: {
+      type: "u8",
+      value: modeToWitnessValue(input.payment?.bindingMode ?? "none"),
+    },
+    RWA_OUTPUT_HASH: {
+      type: "u256",
+      value: `0x${input.rwa?.outputHash ?? ZERO_HASH_256}`,
+    },
+    RWA_OUTPUT_SCRIPT_HASH: {
+      type: "u256",
+      value: `0x${input.rwa?.outputScriptHash ?? ZERO_HASH_256}`,
+    },
+    RWA_OUTPUT_BINDING_MODE: {
+      type: "u8",
+      value: modeToWitnessValue(input.rwa?.bindingMode ?? "none"),
+    },
+    REFUND_OUTPUT_HASH: {
+      type: "u256",
+      value: `0x${input.refund?.outputHash ?? ZERO_HASH_256}`,
+    },
+    REFUND_OUTPUT_SCRIPT_HASH: {
+      type: "u256",
+      value: `0x${input.refund?.outputScriptHash ?? ZERO_HASH_256}`,
+    },
+    REFUND_OUTPUT_BINDING_MODE: {
+      type: "u8",
+      value: modeToWitnessValue(input.refund?.bindingMode ?? "none"),
+    },
+  };
+  return {
+    ...(input.base?.source ? { source: input.base.source } : {}),
+    ...(input.base?.signers ? { signers: input.base.signers } : {}),
+    values,
+  };
+}
+
+function paymentContractInput(
+  descriptor: RwaDvpDeliveryClaimDescriptor | RwaDvpRefundClaimDescriptor,
+): MultiAssetContractCallInput["contractInput"] | undefined {
+  if (descriptor.paymentInput?.txid) {
+    return {
+      txid: descriptor.paymentInput.txid,
+      ...(descriptor.paymentInput.vout !== undefined ? { vout: descriptor.paymentInput.vout } : {}),
+      asset: descriptor.paymentInput.assetId,
+      amountSat: atomicToSafeSat(descriptor.paymentInput.amountAtomic, "paymentInput.amountAtomic"),
+    };
+  }
+  if ("fundingTxid" in descriptor && descriptor.fundingTxid) {
+    return { txid: descriptor.fundingTxid };
+  }
+  return undefined;
+}
+
+async function buildDeliveryClaimCallInput(
+  sdk: SimplicityClient,
+  input: RwaDvpInspectDeliveryClaimInput,
+): Promise<{
+  artifact: SimplicityArtifact;
+  verification: RwaDvpVerificationReport;
+  outputBinding: RwaDvpDeliveryClaimInspection["outputBinding"];
+  callInput: MultiAssetContractCallInput;
+}> {
+  const verification = verifyDeliveryClaim(sdk, { purchase: input.purchase, descriptor: input.descriptor });
+  if (!verification.ok) {
+    throw new ValidationError(verification.reason ?? "RWA DvP delivery claim verification failed");
+  }
+  const artifact = await loadClaimArtifact(sdk, input);
+  const payment = input.descriptor.outputs.paymentToTreasury;
+  const rwa = input.descriptor.outputs.rwaToBuyer;
+  const paymentBinding = await resolveClaimOutputBinding(sdk, {
+    recipientAddress: payment.recipientAddress,
+    assetId: payment.assetId,
+    amountAtomic: payment.amountAtomic,
+    outputBindingMode: "script-bound",
+  });
+  const rwaBinding = await resolveClaimOutputBinding(sdk, {
+    recipientAddress: rwa.recipientAddress,
+    assetId: rwa.assetId,
+    amountAtomic: rwa.amountAtomic,
+    outputBindingMode: rwa.outputBindingMode,
+    rawOutput: rwa.rawOutput,
+  });
+  const outputs: MultiAssetContractOutput[] = [
+    {
+      address: payment.recipientAddress,
+      asset: payment.assetId,
+      amountSat: atomicToSafeSat(payment.amountAtomic, "payment.amountAtomic"),
+    },
+    {
+      address: rwa.recipientAddress,
+      asset: rwa.assetId,
+      amountSat: atomicToSafeSat(rwa.amountAtomic, "delivery.amountAtomic"),
+    },
+  ];
+  const callInput: MultiAssetContractCallInput = {
+    wallet: input.wallet,
+    signer: input.signer,
+    contractInput: paymentContractInput(input.descriptor),
+    extraInputs: await resolveDeliveryExtraInputs(sdk, input),
+    outputs,
+    feeSat: input.feeSat ?? input.descriptor.fee.maxFeeSat,
+    ...(input.changeAddress ? { changeAddress: input.changeAddress } : {}),
+    purpose: "rwa_dvp_delivery_claim",
+    ...(input.locktimeHeight !== undefined ? { locktimeHeight: input.locktimeHeight } : {}),
+    witness: claimWitness({
+      base: input.witness,
+      delivery: true,
+      payment: paymentBinding,
+      rwa: rwaBinding,
+    }),
+  };
+  return {
+    artifact,
+    verification,
+    outputBinding: {
+      paymentToTreasury: paymentBinding,
+      rwaToBuyer: rwaBinding,
+    },
+    callInput,
+  };
+}
+
+async function buildRefundClaimCallInput(
+  sdk: SimplicityClient,
+  input: RwaDvpInspectRefundClaimInput,
+): Promise<{
+  artifact: SimplicityArtifact;
+  verification: RwaDvpVerificationReport;
+  outputBinding: RwaDvpRefundClaimInspection["outputBinding"];
+  callInput: MultiAssetContractCallInput;
+}> {
+  const verification = verifyRefundClaim(sdk, { purchase: input.purchase, descriptor: input.descriptor });
+  if (!verification.ok) {
+    throw new ValidationError(verification.reason ?? "RWA DvP refund claim verification failed");
+  }
+  const artifact = await loadClaimArtifact(sdk, input);
+  const refund = input.descriptor.refundOutput;
+  const refundBinding = await resolveClaimOutputBinding(sdk, {
+    recipientAddress: refund.recipientAddress,
+    assetId: refund.assetId,
+    amountAtomic: refund.amountAtomic,
+    outputBindingMode: "script-bound",
+  });
+  const callInput: MultiAssetContractCallInput = {
+    wallet: input.wallet,
+    signer: input.signer,
+    contractInput: paymentContractInput(input.descriptor),
+    extraInputs: await resolveRefundExtraInputs(sdk, input),
+    outputs: [
+      {
+        address: refund.recipientAddress,
+        asset: refund.assetId,
+        amountSat: atomicToSafeSat(refund.amountAtomic, "refund.amountAtomic"),
+      },
+    ],
+    feeSat: input.feeSat ?? input.descriptor.fee.maxFeeSat,
+    ...(input.changeAddress ? { changeAddress: input.changeAddress } : {}),
+    purpose: "rwa_dvp_refund_claim",
+    ...(input.locktimeHeight !== undefined ? { locktimeHeight: input.locktimeHeight } : {}),
+    witness: claimWitness({
+      base: input.witness,
+      delivery: false,
+      refund: refundBinding,
+    }),
+  };
+  return {
+    artifact,
+    verification,
+    outputBinding: {
+      refund: refundBinding,
+    },
+    callInput,
+  };
+}
+
+export async function compileEscrowContract(
+  sdk: SimplicityClient,
+  input: RwaDvpCompileEscrowContractInput,
+): Promise<RwaDvpCompiledEscrowContract> {
+  if (!Number.isInteger(input.timeoutHeight) || input.timeoutHeight < 0) {
+    throw new ValidationError("timeoutHeight must be a non-negative integer");
+  }
+  const termsHash = summarizePurchase(input.purchase).hash;
+  const policyHash = summarizePolicy(input.purchase).hash;
+  const compiled = await sdk.compileFromFile({
+    simfPath: input.simfPath ?? resolveRwaDvpDocsAsset("rwa-dvp-escrow.simf"),
+    templateVars: {
+      TERMS_HASH: termsHash,
+      POLICY_HASH: policyHash,
+      OPERATOR_XONLY: assertXonly(input.operatorXonly, "operatorXonly"),
+      TIMEOUT_HEIGHT: input.timeoutHeight,
+    },
+  });
+  return {
+    compiled,
+    artifact: compiled.artifact,
+    contractAddress: compiled.deployment().contractAddress,
+    timeoutHeight: input.timeoutHeight,
+    termsHash,
+    policyHash,
+  };
+}
+
+export async function inspectDeliveryClaim(
+  sdk: SimplicityClient,
+  input: RwaDvpInspectDeliveryClaimInput,
+): Promise<RwaDvpDeliveryClaimInspection> {
+  const prepared = await buildDeliveryClaimCallInput(sdk, input);
+  const inspect = await inspectMultiAssetContractCall(sdk.config, prepared.artifact, prepared.callInput);
+  return {
+    descriptor: input.descriptor,
+    verification: prepared.verification,
+    outputBinding: prepared.outputBinding,
+    inspect,
+  };
+}
+
+export async function executeDeliveryClaim(
+  sdk: SimplicityClient,
+  input: RwaDvpExecuteDeliveryClaimInput,
+): Promise<RwaDvpDeliveryClaimExecution> {
+  const prepared = await buildDeliveryClaimCallInput(sdk, input);
+  const execution = await executeMultiAssetContractCall(sdk.config, prepared.artifact, {
+    ...prepared.callInput,
+    broadcast: input.broadcast,
+  });
+  return {
+    descriptor: input.descriptor,
+    verification: prepared.verification,
+    outputBinding: prepared.outputBinding,
+    execution,
+  };
+}
+
+export async function inspectRefundClaim(
+  sdk: SimplicityClient,
+  input: RwaDvpInspectRefundClaimInput,
+): Promise<RwaDvpRefundClaimInspection> {
+  const prepared = await buildRefundClaimCallInput(sdk, input);
+  const inspect = await inspectMultiAssetContractCall(sdk.config, prepared.artifact, prepared.callInput);
+  return {
+    descriptor: input.descriptor,
+    verification: prepared.verification,
+    outputBinding: prepared.outputBinding,
+    inspect,
+  };
+}
+
+export async function executeRefundClaim(
+  sdk: SimplicityClient,
+  input: RwaDvpExecuteRefundClaimInput,
+): Promise<RwaDvpRefundClaimExecution> {
+  const prepared = await buildRefundClaimCallInput(sdk, input);
+  const execution = await executeMultiAssetContractCall(sdk.config, prepared.artifact, {
+    ...prepared.callInput,
+    broadcast: input.broadcast,
+  });
+  return {
+    descriptor: input.descriptor,
+    verification: prepared.verification,
+    outputBinding: prepared.outputBinding,
+    execution,
+  };
 }
 
 export function exportEvidence(
