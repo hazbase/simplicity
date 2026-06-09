@@ -361,6 +361,8 @@ export interface MultiAssetContractInput {
   asset: string;
   amountSat: number;
   sequence?: number;
+  amountBlinder?: string;
+  assetBlinder?: string;
 }
 
 export interface MultiAssetContractOutput {
@@ -378,6 +380,8 @@ export interface MultiAssetContractCallInput {
     vout?: number;
     asset?: string;
     amountSat?: number;
+    rawTxHex?: string;
+    blindingPrivateKey?: string;
   };
   extraInputs?: MultiAssetContractInput[];
   outputs: MultiAssetContractOutput[];

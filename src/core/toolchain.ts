@@ -65,6 +65,7 @@ export async function runHalUpdateInput(
     "simplicity",
     "pset",
     "update-input",
+    "--liquid",
     pset,
     String(inputIndex),
     "-i",
@@ -86,10 +87,77 @@ export async function runHalCreatePset(
     "simplicity",
     "pset",
     "create",
+    "--liquid",
     JSON.stringify(inputs),
     JSON.stringify(outputs),
   ]);
   return JSON.parse(result.stdout);
+}
+
+export async function runSimplicityCreatePset(
+  halPath: string,
+  inputs: Array<{ txid: string; vout: number; sequence?: number }>,
+  outputs: Array<{ address: string; asset: string; amount: number; blinderIndex?: number }>
+): Promise<unknown> {
+  const helperPath = process.env.HAZBASE_SIMPLICITY_CREATE_PATH ?? "hazbase-simplicity-create";
+  try {
+    const helper = await runCommand(helperPath, [
+      "--liquid",
+      JSON.stringify(inputs),
+      JSON.stringify(outputs),
+    ]);
+    return JSON.parse(helper.stdout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("ENOENT")) {
+      return {
+        error: message,
+      };
+    }
+  }
+  return runHalCreatePset(halPath, inputs, outputs);
+}
+
+export async function runSimplicityUpdateInput(
+  halPath: string,
+  pset: string,
+  inputIndex: number,
+  inputUtxo: string,
+  cmr: string,
+  internalKey: string
+): Promise<unknown> {
+  const helperPath = process.env.HAZBASE_SIMPLICITY_UPDATE_INPUT_PATH ?? "hazbase-simplicity-update-input";
+  try {
+    const helper = await runCommand(helperPath, [
+      "--liquid",
+      pset,
+      String(inputIndex),
+      internalKey,
+      cmr,
+    ]);
+    return JSON.parse(helper.stdout);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("ENOENT")) {
+      return {
+        error: message,
+      };
+    }
+  }
+  return runHalUpdateInput(halPath, pset, inputIndex, inputUtxo, cmr, internalKey);
+}
+
+export async function runSimplicityBlindPset(
+  pset: string,
+  inputSecrets: Array<Record<string, unknown>>
+): Promise<unknown> {
+  const helperPath = process.env.HAZBASE_SIMPLICITY_BLIND_PSET_PATH ?? "hazbase-simplicity-blind-pset";
+  const helper = await runCommand(helperPath, [
+    "--liquid",
+    pset,
+    JSON.stringify(inputSecrets),
+  ]);
+  return JSON.parse(helper.stdout);
 }
 
 export async function runHalSighash(
@@ -102,6 +170,7 @@ export async function runHalSighash(
   const result = await runCommand(halPath, [
     "simplicity",
     "sighash",
+    "--liquid",
     pset,
     String(inputIndex),
     cmr,
@@ -122,6 +191,7 @@ export async function runHalFinalize(
     "simplicity",
     "pset",
     "finalize",
+    "--liquid",
     pset,
     String(inputIndex),
     program,
@@ -130,7 +200,41 @@ export async function runHalFinalize(
   return JSON.parse(result.stdout);
 }
 
+export async function runSimplicityFinalize(
+  halPath: string,
+  pset: string,
+  inputIndex: number,
+  program: string,
+  witness: string,
+  options: { redeemProgram?: string } = {},
+): Promise<unknown> {
+  const helperPath = process.env.HAZBASE_SIMPLICITY_FINALIZE_PATH ?? "hazbase-simplicity-finalize";
+  if (options.redeemProgram) {
+    try {
+      const helper = await runCommand(helperPath, [
+        "--liquid",
+        pset,
+        String(inputIndex),
+        options.redeemProgram,
+        witness,
+      ]);
+      return JSON.parse(helper.stdout);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("ENOENT")) {
+        const halFallback = await runHalFinalize(halPath, pset, inputIndex, program, witness);
+        if ((halFallback as { pset?: string }).pset) return halFallback;
+        return {
+          ...(halFallback as Record<string, unknown>),
+          helperError: message,
+        };
+      }
+    }
+  }
+  return runHalFinalize(halPath, pset, inputIndex, program, witness);
+}
+
 export async function runHalExtract(halPath: string, pset: string): Promise<string> {
-  const result = await runCommand(halPath, ["simplicity", "pset", "extract", pset]);
+  const result = await runCommand(halPath, ["simplicity", "pset", "extract", "--liquid", pset]);
   return result.stdout;
 }

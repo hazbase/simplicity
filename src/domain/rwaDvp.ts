@@ -272,6 +272,8 @@ export interface RwaDvpClaimExecutionBaseInput {
   feeSat?: number;
   changeAddress?: string;
   extraInputs?: MultiAssetContractInput[];
+  contractInputRawTxHex?: string;
+  contractInputBlindingPrivateKey?: string;
   witness?: WitnessConfig;
   locktimeHeight?: number;
 }
@@ -598,6 +600,8 @@ interface WalletListUnspentResult {
   vout: number;
   amount: number | string;
   asset: string;
+  amountblinder?: string;
+  assetblinder?: string;
   spendable?: boolean;
   safe?: boolean;
 }
@@ -660,6 +664,8 @@ async function listWalletInputs(sdk: SimplicityClient, wallet: string): Promise<
       vout: entry.vout,
       asset: entry.asset,
       amountSat: decimalToSat(entry.amount),
+      ...(entry.amountblinder ? { amountBlinder: entry.amountblinder } : {}),
+      ...(entry.assetblinder ? { assetBlinder: entry.assetblinder } : {}),
     }));
 }
 
@@ -863,6 +869,7 @@ function claimWitness(input: {
 
 function paymentContractInput(
   descriptor: RwaDvpDeliveryClaimDescriptor | RwaDvpRefundClaimDescriptor,
+  input?: RwaDvpClaimExecutionBaseInput,
 ): MultiAssetContractCallInput["contractInput"] | undefined {
   if (descriptor.paymentInput?.txid) {
     return {
@@ -870,6 +877,8 @@ function paymentContractInput(
       ...(descriptor.paymentInput.vout !== undefined ? { vout: descriptor.paymentInput.vout } : {}),
       asset: descriptor.paymentInput.assetId,
       amountSat: atomicToSafeSat(descriptor.paymentInput.amountAtomic, "paymentInput.amountAtomic"),
+      ...(input?.contractInputRawTxHex ? { rawTxHex: input.contractInputRawTxHex } : {}),
+      ...(input?.contractInputBlindingPrivateKey ? { blindingPrivateKey: input.contractInputBlindingPrivateKey } : {}),
     };
   }
   if ("fundingTxid" in descriptor && descriptor.fundingTxid) {
@@ -922,13 +931,13 @@ async function buildDeliveryClaimCallInput(
   const callInput: MultiAssetContractCallInput = {
     wallet: input.wallet,
     signer: input.signer,
-    contractInput: paymentContractInput(input.descriptor),
+    contractInput: paymentContractInput(input.descriptor, input),
     extraInputs: await resolveDeliveryExtraInputs(sdk, input),
     outputs,
     feeSat: input.feeSat ?? input.descriptor.fee.maxFeeSat,
     ...(input.changeAddress ? { changeAddress: input.changeAddress } : {}),
     purpose: "rwa_dvp_delivery_claim",
-    ...(input.locktimeHeight !== undefined ? { locktimeHeight: input.locktimeHeight } : {}),
+    locktimeHeight: input.locktimeHeight ?? 0,
     witness: claimWitness({
       base: input.witness,
       delivery: true,
@@ -971,7 +980,7 @@ async function buildRefundClaimCallInput(
   const callInput: MultiAssetContractCallInput = {
     wallet: input.wallet,
     signer: input.signer,
-    contractInput: paymentContractInput(input.descriptor),
+    contractInput: paymentContractInput(input.descriptor, input),
     extraInputs: await resolveRefundExtraInputs(sdk, input),
     outputs: [
       {

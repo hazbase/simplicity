@@ -13,11 +13,13 @@ import { renderTemplate } from "./templating";
 import { getPresetOrThrow, validateWitnessConfig } from "./presets";
 import {
   runCommand,
-  runHalCreatePset,
   runHalExtract,
-  runHalFinalize,
   runHalSighash,
   runHalUpdateInput,
+  runSimplicityBlindPset,
+  runSimplicityCreatePset,
+  runSimplicityFinalize,
+  runSimplicityUpdateInput,
   runSimcWithWitness,
 } from "./toolchain";
 import {
@@ -150,20 +152,46 @@ function getEffectiveLocktime(
   return getArtifactLocktime(artifact);
 }
 
-function parseSimcWitness(output: string): string {
+function parseSimcWitnessOutput(output: string): { program?: string; witness: string } {
   const lines = output
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+  let program: string | undefined;
+  for (const line of lines) {
+    if (line.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(line) as { program?: unknown; witness?: unknown };
+        if (typeof parsed.witness === "string" && parsed.witness.trim()) {
+          return {
+            ...(typeof parsed.program === "string" && parsed.program.trim() ? { program: parsed.program.trim() } : {}),
+            witness: parsed.witness.trim(),
+          };
+        }
+      } catch {
+        // Continue with the human-readable simc output format.
+      }
+    }
+  }
+  for (const line of lines) {
+    if (line.startsWith("Program:")) {
+      const rest = line.slice("Program:".length).trim();
+      if (rest) program = rest;
+    }
+  }
+  const programLineIndex = lines.findIndex((line) => line === "Program:");
+  if (!program && programLineIndex >= 0 && lines[programLineIndex + 1]) {
+    program = lines[programLineIndex + 1];
+  }
   for (const line of lines) {
     if (line.startsWith("Witness:")) {
       const rest = line.slice("Witness:".length).trim();
-      if (rest) return rest;
+      if (rest) return { ...(program ? { program } : {}), witness: rest };
     }
   }
   const nextLineIndex = lines.findIndex((line) => line === "Witness:");
   if (nextLineIndex >= 0 && lines[nextLineIndex + 1]) {
-    return lines[nextLineIndex + 1];
+    return { ...(program ? { program } : {}), witness: lines[nextLineIndex + 1] };
   }
   throw new ExecutionError("Could not parse Witness from simc output", { output });
 }
@@ -291,7 +319,7 @@ async function allocateWalletAddress(
   const address = await callRpc<string>(config, "getnewaddress", [], wallet);
   const info = await getAddressInfo(config, wallet, address);
   return {
-    address: info.unconfidential ?? address,
+    address,
     scriptPubKey: info.scriptPubKey,
   };
 }
@@ -607,6 +635,34 @@ function findRequestedContractUtxo(
   };
 }
 
+function buildMultiAssetBlindingSecrets(input: {
+  contractInput?: MultiAssetContractCallInput["contractInput"];
+  contractUtxo: ContractUtxo;
+  extraInputs: MultiAssetContractInput[];
+}): Array<Record<string, unknown>> {
+  const secrets: Array<Record<string, unknown>> = [];
+  if (input.contractInput?.rawTxHex && input.contractInput.blindingPrivateKey) {
+    secrets.push({
+      index: 0,
+      rawTxHex: input.contractInput.rawTxHex,
+      vout: input.contractInput.vout ?? input.contractUtxo.vout,
+      blindingPrivateKey: input.contractInput.blindingPrivateKey,
+    });
+  }
+  input.extraInputs.forEach((extra, index) => {
+    if (extra.amountBlinder && extra.assetBlinder) {
+      secrets.push({
+        index: index + 1,
+        asset: extra.asset,
+        amountSat: extra.amountSat,
+        amountBlinder: extra.amountBlinder,
+        assetBlinder: extra.assetBlinder,
+      });
+    }
+  });
+  return secrets;
+}
+
 async function buildMultiAssetExecutionState(
   config: SimplicityClientConfig,
   artifact: SimplicityArtifact,
@@ -649,9 +705,13 @@ async function buildMultiAssetExecutionState(
   addAssetAmount(outputTotals, lbtcAssetId, feeSat);
 
   const changeOutputs: MultiAssetContractOutput[] = [];
-  const changeAddress = input.changeAddress
-    ? (await getAddressInfo(config, input.wallet, input.changeAddress)).unconfidential ?? input.changeAddress
-    : (await allocateWalletAddress(config, input.wallet)).address;
+  let changeAddress: string;
+  if (input.changeAddress) {
+    await getAddressInfo(config, input.wallet, input.changeAddress);
+    changeAddress = input.changeAddress;
+  } else {
+    changeAddress = (await allocateWalletAddress(config, input.wallet)).address;
+  }
   const assetKeys = Array.from(new Set([...inputTotals.keys(), ...outputTotals.keys()])).sort();
   for (const asset of assetKeys) {
     const available = inputTotals.get(asset) ?? 0;
@@ -685,11 +745,19 @@ async function buildMultiAssetExecutionState(
       sequence: extra.sequence ?? DEFAULT_SEQUENCE,
     })),
   ];
+  const inputAssets = [contractUtxo.asset, ...extraInputs.map((extra) => extra.asset)];
+  const blinderIndexFor = (asset: string): number | undefined => {
+    const normalized = normalizeAssetId(asset);
+    const extraIndex = extraInputs.findIndex((input) => normalizeAssetId(input.asset) === normalized);
+    if (extraIndex >= 0) return extraIndex + 1;
+    const index = inputAssets.findIndex((inputAsset) => normalizeAssetId(inputAsset) === normalized);
+    return index >= 0 ? index : undefined;
+  };
   const psetOutputs = await Promise.all(
-    [...input.outputs, ...changeOutputs].map(async (output) => ({
-      ...output,
-      address: (await getAddressInfo(config, input.wallet, output.address)).unconfidential ?? output.address,
-    })),
+    [...input.outputs, ...changeOutputs].map(async (output) => {
+      await getAddressInfo(config, input.wallet, output.address);
+      return output;
+    }),
   );
   const outputsJson: Array<Record<string, number | string>> = [
     ...psetOutputs.map((output) => ({
@@ -703,6 +771,7 @@ async function buildMultiAssetExecutionState(
       address: output.address,
       asset: output.asset,
       amount: satToBtcNumber(output.amountSat),
+      blinderIndex: blinderIndexFor(output.asset),
     })),
     {
       address: "fee",
@@ -712,25 +781,29 @@ async function buildMultiAssetExecutionState(
   ];
 
   const locktime = getEffectiveLocktime(artifact, input);
-  const pset1 = locktime
-    ? await callRpc<string>(
-        config,
-        "createpsbt",
-        [inputsJson, outputsJson, locktime, true],
-        input.wallet,
-      )
-    : ((await runHalCreatePset(
+  const createResult = locktime
+    ? {
+        pset: await callRpc<string>(
+          config,
+          "createpsbt",
+          [inputsJson, outputsJson, locktime, true],
+          input.wallet,
+        ),
+      }
+    : ((await runSimplicityCreatePset(
         config.toolchain.halSimplicityPath,
         inputsJson,
         halOutputsJson,
-      )) as { pset?: string }).pset;
+      )) as { pset?: string });
+  const pset1 = createResult.pset;
   if (!pset1) {
-    throw new ExecutionError("pset create did not return a pset");
+    throw new ExecutionError("pset create did not return a pset", createResult);
   }
   const contractSpec = `${contractUtxo.scriptPubKey}:${contractUtxo.asset}:${satToBtcStringFromNumber(contractUtxo.sat)}`;
-  const contractUpdated = (await runHalUpdateInput(
+  const psetWithUtxos = await callRpc<string>(config, "utxoupdatepsbt", [pset1], input.wallet);
+  const contractUpdated = (await runSimplicityUpdateInput(
     config.toolchain.halSimplicityPath,
-    pset1,
+    psetWithUtxos,
     0,
     contractSpec,
     artifact.compiled.cmr,
@@ -803,10 +876,24 @@ export async function executeMultiAssetContractCall(
   input: MultiAssetContractCallInput,
 ): Promise<MultiAssetExecuteResult> {
   const state = await buildMultiAssetExecutionState(config, artifact, input);
+  const blindingSecrets = buildMultiAssetBlindingSecrets({
+    contractInput: input.contractInput,
+    contractUtxo: state.contractUtxo,
+    extraInputs: state.extraInputs,
+  });
+  const blindedPset = blindingSecrets.length > 0
+    ? ((await runSimplicityBlindPset(state.psetBase64, blindingSecrets)) as { pset?: string; error?: string })
+    : { pset: state.psetBase64 };
+  if (!blindedPset.pset) {
+    throw new ExecutionError(
+      `blind PSET did not return a pset${blindedPset.error ? `: ${blindedPset.error}` : ""}`,
+      blindedPset,
+    );
+  }
   const contractSignedPset = await signContractInput(
     config,
     artifact,
-    state.psetBase64,
+    blindedPset.pset,
     input.signer.privkeyHex,
     input.witness,
   );
@@ -1070,14 +1157,15 @@ async function signContractInput(
   const simfRenderedPath = path.join(workDir, "program.simf");
   await writeFile(simfRenderedPath, simfRendered, "utf8");
   const witnessOutput = await runSimcWithWitness(config.toolchain.simcPath, simfRenderedPath, witnessPath);
-  const witness = parseSimcWitness(witnessOutput);
+  const simc = parseSimcWitnessOutput(witnessOutput);
 
-  const contractFinalized = (await runHalFinalize(
+  const contractFinalized = (await runSimplicityFinalize(
     config.toolchain.halSimplicityPath,
     psetBase64,
     0,
     artifact.compiled.program,
-    witness
+    simc.witness,
+    { ...(simc.program ? { redeemProgram: simc.program } : {}) },
   )) as { pset?: string; error?: string };
   if (!contractFinalized.pset) {
     throw new ExecutionError(
