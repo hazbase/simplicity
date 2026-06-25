@@ -20,20 +20,25 @@ With the current public SDK you can build and test:
 - bond redemption / settlement / close-out flows
 - LP fund capital call / distribution / close-out flows
 - receivable repayment-first funding / partial repayment / closing flows
+- RWA delivery-versus-payment flows over Liquid PSETs and Liquid x402
+- atomic Liquid DvP proposals where service delivery and buyer payment settle in one PSET
 - evidence, trust summary, lineage, and finality exports
 
 ## Public Architecture
 
-The public SDK is organized into five layers:
+The public SDK is organized into domain clients and lower-level payment helpers:
 - `sdk.outputBinding`: shared output-binding support, evaluation, and fallback behavior
 - `sdk.policies`: generic constrained transfer and recursive policy engine
 - `sdk.bonds`: private bond / credit settlement business layer
 - `sdk.funds`: LP fund settlement business layer
 - `sdk.receivables`: repayment-first receivable business layer
+- `sdk.rwaDvp`: RWA purchase terms, payment requirements, claim descriptors, and evidence
+- `sdk.payments.x402`: Liquid x402 assets, PSET payment helpers, verification, and settlement
 
 A useful mental model is:
 - `sdk.outputBinding` + `sdk.policies` provide the shared settlement kernel
-- `sdk.bonds`, `sdk.funds`, and `sdk.receivables` build domain flows on top of that kernel
+- `sdk.bonds`, `sdk.funds`, `sdk.receivables`, and `sdk.rwaDvp` build domain flows on top of that kernel
+- `sdk.payments.x402` and the root-level `x402` exports provide the Liquid PSET payment layer used by those flows
 
 ## Quickstart
 
@@ -158,6 +163,12 @@ Use `sdk.rwaDvp` when a purchase flow needs a Liquid PSET payment request,
 delivery/refund claim descriptors, and an evidence bundle that ties the Liquid
 payment and delivery to an external lock or allocation record.
 
+The EVM-side lock reference can describe the source asset being held for
+settlement. Set `evmLock.tokenStandard` to `"ERC3475"`, `"ERC20"`, `"ERC721"`,
+or `"ERC1155"` and include the token address / id fields used by your lock
+manager. Existing callers that omit `tokenStandard` are treated as `"ERC3475"`
+for backwards compatibility.
+
 For standard Liquid assets, `payment.asset` can be `"lbtc"` or `"usdt"`. If a
 testnet issuer or deployment uses a different USDt asset id, set
 `payment.asset: "usdt"` and pass the explicit `payment.assetId`; the generated
@@ -191,6 +202,81 @@ inputs needed for RWA delivery and L-BTC fees. You can also pass explicit
 delivery/refund output checks are the practical default; descriptor-bound checks
 should be used only when the caller can provide the exact output data required
 by the descriptor.
+
+#### Atomic Liquid DvP PSET helpers
+
+For flows that should avoid a separate "buyer pays first, service delivers
+later" step, the SDK also exposes lower-level atomic DvP helpers from the root
+package:
+
+- `buildLiquidAtomicDvpRequirements(...)`
+- `prepareLiquidAtomicDvpLwkWasmMakerProposal(...)`
+- `prepareLiquidAtomicDvpLwkWasmTakerPayment(...)`
+- `buildLiquidAtomicDvpPaymentFromPset(...)`
+- `verifyLiquidAtomicDvpPayment(...)`
+- `encodeLiquidAtomicDvpPayment(...)`
+- `decodeLiquidAtomicDvpPayment(...)`
+
+These helpers model a Liquidex-style exchange:
+- the service/maker selects an exact RWA delivery UTXO and creates a proposal
+- the buyer/taker adds the required payment output and signs the combined PSET
+- the resulting `X-PAYMENT` payload commits to both the payment output and the
+  delivery output through a summary hash
+
+The LWK convenience helpers dynamically load `lwk_node` or `lwk_wasm` from the
+consuming application. Install one of them in the application that prepares or
+takes proposals:
+
+```bash
+npm install lwk_node
+```
+
+Typical server-side shape:
+
+```ts
+import {
+  buildLiquidAtomicDvpRequirements,
+  prepareLiquidAtomicDvpLwkWasmMakerProposal,
+  verifyLiquidAtomicDvpPayment,
+} from "@hazbase/simplicity";
+
+const requirements = buildLiquidAtomicDvpRequirements({
+  network: "liquidtestnet",
+  resource: "/v1/orders/<order-id>/liquid-atomic-pset",
+  paymentToTreasury: {
+    assetId: "<lbtc-or-usdt-asset-id>",
+    amountAtomic: "10000",
+    recipient: "<treasury-confidential-address>",
+  },
+  rwaToBuyer: {
+    assetId: "<rwa-liquid-asset-id>",
+    amountAtomic: "10",
+    recipient: "<buyer-confidential-address>",
+  },
+  expiresAt: new Date(Date.now() + 15 * 60_000),
+});
+
+const maker = await prepareLiquidAtomicDvpLwkWasmMakerProposal({
+  requirements,
+  mnemonic: process.env.SERVICE_LIQUID_MNEMONIC!,
+  descriptor: process.env.SERVICE_LIQUID_DESCRIPTOR!,
+  electrumUrl: process.env.LIQUID_ELECTRUM_URL!,
+});
+
+// Store maker.proposalPsetBase64 with the order/payment requirements.
+// When the buyer submits X-PAYMENT, verify it before broadcasting.
+const verified = verifyLiquidAtomicDvpPayment({
+  requirements,
+  paymentPayload: buyerPaymentPayload,
+});
+if (!verified.ok) throw new Error(verified.reason);
+```
+
+The SDK-level payload check is intentionally lightweight: it verifies the
+scheme, network, resource, expiry, PSET value, and summary hash. Production
+settlement services should still decode the final PSET with their Liquid node or
+wallet stack, verify the concrete payment and delivery outputs, and only then
+broadcast.
 
 ## CLI and Confidence Commands
 

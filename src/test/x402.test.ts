@@ -2,17 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIQUID_X402_ASSETS,
+  buildLiquidAtomicDvpPaymentFromPset,
+  buildLiquidAtomicDvpRequirements,
   buildLiquidPsetSummaryHash,
   buildLiquidX402PaymentFromPset,
   buildLiquidX402Requirements,
+  decodeLiquidAtomicDvpPayment,
   decodeLiquidXPayment,
   deriveLiquidX402LwkWasmAddress,
+  encodeLiquidAtomicDvpPayment,
   encodeLiquidXPayment,
   listLiquidX402Assets,
   prepareLiquidX402LwkWasmPayment,
   prepareLiquidX402PsetPayment,
   resolveLiquidX402Asset,
   settleLiquidX402Payment,
+  verifyLiquidAtomicDvpPayment,
   verifyLiquidX402Payment,
 } from "../x402";
 
@@ -99,6 +104,79 @@ test("Liquid x402 summary hash is stable across decoder-specific change outputs"
   assert.equal(
     buildLiquidPsetSummaryHash(decodedPset, requirements),
     buildLiquidPsetSummaryHash(withChangeOutput, requirements)
+  );
+});
+
+test("Liquid atomic DvP requirements bind payment and delivery outputs", () => {
+  const requirements = buildLiquidAtomicDvpRequirements({
+    network: "liquidtestnet",
+    paymentRequestId: "rwa-order-atomic-1",
+    resource: "https://settlement.example/v1/orders/rwa-order-atomic-1/payments/atomic-dvp-pset",
+    termsHash: "0xterms",
+    policyHash: "0xpolicy",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    maxTimeoutSeconds: 60,
+    payment: {
+      assetId: LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId,
+      amountAtomic: "10000",
+      recipient: "tlq1treasury",
+    },
+    delivery: {
+      assetId: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+      amountAtomic: "10",
+      recipient: "tlq1buyer",
+    },
+    maxFeeSat: "1200",
+    serviceSigner: {
+      type: "operator_wallet",
+      xonly: "a".repeat(64),
+    },
+  });
+  const changedDelivery = buildLiquidAtomicDvpRequirements({
+    network: requirements.network,
+    paymentRequestId: requirements.paymentRequestId,
+    resource: requirements.resource,
+    termsHash: requirements.termsHash,
+    policyHash: requirements.policyHash,
+    expiresAt: requirements.expiresAt,
+    maxTimeoutSeconds: requirements.maxTimeoutSeconds,
+    payment: requirements.outputs.paymentToTreasury,
+    delivery: {
+      ...requirements.outputs.rwaToBuyer,
+      amountAtomic: "9",
+    },
+    maxFeeSat: requirements.maxFeeSat ?? undefined,
+    serviceSigner: requirements.serviceSigner,
+  });
+  assert.notEqual(requirements.summaryHash, changedDelivery.summaryHash);
+
+  const prepared = buildLiquidAtomicDvpPaymentFromPset({
+    requirements,
+    psetBase64: "cHNldA==",
+    payer: "liquid:buyer",
+  });
+  assert.equal(prepared.summaryHash, requirements.summaryHash);
+  assert.deepEqual(decodeLiquidAtomicDvpPayment(encodeLiquidAtomicDvpPayment(prepared.paymentPayload)), prepared.paymentPayload);
+  assert.equal(verifyLiquidAtomicDvpPayment({ requirements, paymentPayload: prepared.paymentPayload }).isValid, true);
+  assert.equal(
+    verifyLiquidAtomicDvpPayment({
+      requirements,
+      paymentPayload: {
+        ...prepared.paymentPayload,
+        summaryHash: `0x${prepared.paymentPayload.summaryHash}`,
+      },
+    }).isValid,
+    true
+  );
+  assert.equal(
+    verifyLiquidAtomicDvpPayment({
+      requirements,
+      paymentPayload: {
+        ...prepared.paymentPayload,
+        summaryHash: changedDelivery.summaryHash,
+      },
+    }).invalidReason,
+    "summary_hash_mismatch"
   );
 });
 

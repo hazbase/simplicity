@@ -64,6 +64,7 @@ function buildPurchase() {
 test("sdk.rwaDvp prepares payment requirements and verifies a basic PSET payload", async () => {
   const sdk = createSimplicityClient(TEST_CONFIG);
   const prepared = buildPurchase();
+  assert.equal(prepared.definition.evmLock.tokenStandard, "ERC3475");
   const requirements = sdk.rwaDvp.buildPaymentRequirements({
     purchase: prepared.definition,
     resource: "https://settlement.example/v1/orders/rwa-order-1/payments/liquid-pset",
@@ -94,6 +95,43 @@ test("sdk.rwaDvp prepares payment requirements and verifies a basic PSET payload
   });
   assert.equal(verified.isValid, true);
   assert.equal(verified.paymentRequestId, "rwa-order-1");
+});
+
+test("sdk.rwaDvp preserves generic EVM token standards in purchase terms", () => {
+  const sdk = createSimplicityClient(TEST_CONFIG);
+  const prepared = sdk.rwaDvp.definePurchase({
+    purchaseId: "rwa-order-erc1155",
+    network: "liquidtestnet",
+    evmLock: {
+      chainId: 11155111,
+      lockManager: "0x8C4686Fe684FB2eEc7aA2eEe4175EAc70206C881",
+      orderKey: "0x" + "12".repeat(32),
+      tokenStandard: "ERC1155",
+      token: "0x0000000000000000000000000000000000000015",
+      classId: "7",
+      nonceId: "0",
+      amountAtomic: "1000",
+    },
+    payment: {
+      asset: "lbtc",
+      amountAtomic: "50000",
+      escrowAddress: "tlq1escrow",
+      treasuryAddress: "tlq1treasury",
+    },
+    delivery: {
+      assetId: "aa".repeat(32),
+      amountAtomic: "1000",
+      recipientAddress: "tlq1buyer",
+    },
+    refund: {
+      recipientAddress: "tlq1refund",
+      after: "2099-01-01T00:00:00.000Z",
+    },
+    expiresAt: "2099-01-01T00:30:00.000Z",
+  });
+
+  assert.equal(prepared.definition.evmLock.tokenStandard, "ERC1155");
+  assert.equal(prepared.definition.evmLock.classId, "7");
 });
 
 test("sdk.rwaDvp preserves explicit USDt asset ids in payment requirements", async () => {

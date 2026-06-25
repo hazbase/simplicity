@@ -183,6 +183,7 @@ export type {
   RwaDvpDeliveryClaimInspection,
   RwaDvpEvidenceBundle,
   RwaDvpEvmLockReference,
+  RwaDvpEvmTokenStandard,
   RwaDvpExecuteDeliveryClaimInput,
   RwaDvpExecuteRefundClaimInput,
   RwaDvpInspectDeliveryClaimInput,

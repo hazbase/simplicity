@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { ElementsRpcClient } from "../core/rpc";
+export * from "./atomicDvp";
 
 export const LIQUID_X402_SCHEME = "exact-liquid-pset" as const;
 export const LIQUID_X402_VERSION = 1 as const;

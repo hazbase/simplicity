@@ -46,11 +46,13 @@ export const RWA_DVP_VERIFICATION_SCHEMA_VERSION = "rwa-dvp-verification/v1" as 
 export const RWA_DVP_EVIDENCE_SCHEMA_VERSION = "rwa-dvp-evidence/v1" as const;
 
 export type RwaDvpPaymentAsset = LiquidX402AssetKey;
+export type RwaDvpEvmTokenStandard = "ERC3475" | "ERC20" | "ERC721" | "ERC1155";
 
 export interface RwaDvpEvmLockReference {
   chainId: number;
   lockManager: string;
   orderKey: string;
+  tokenStandard?: RwaDvpEvmTokenStandard;
   token?: string;
   backingOwner?: string;
   classId?: string;
@@ -372,6 +374,7 @@ export function definePurchase(
     network,
     evmLock: {
       ...input.evmLock,
+      tokenStandard: input.evmLock.tokenStandard ?? "ERC3475",
       amountAtomic: normalizeInteger(input.evmLock.amountAtomic),
     },
     payment: {
