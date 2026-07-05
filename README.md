@@ -175,6 +175,15 @@ testnet issuer or deployment uses a different USDt asset id, set
 payment requirements will preserve that asset id instead of replacing it with
 the SDK's default registry id.
 
+For policy-locked Liquid RWA positions, redemption can be represented as a
+Liquid x402 request with `extra.redemptionSource.type:
+"policy_locked_position"`. Wallets can use
+`buildLiquidPolicyLockedRedemptionPaymentFromProposal(...)` when a service has
+already prepared the Simplicity policy-spend PSET proposal. The helper binds the
+custom RWA asset, policy position, vault output, expiry, and summary hash into
+the `X-PAYMENT` payload, and rejects proposals that still require holder-side
+Simplicity witness construction.
+
 Typical entrypoints:
 - `sdk.rwaDvp.definePurchase(...)`
 - `sdk.rwaDvp.buildPaymentRequirements(...)`

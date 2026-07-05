@@ -5,6 +5,7 @@ import {
   buildLiquidAtomicDvpPaymentFromPset,
   buildLiquidAtomicDvpRequirements,
   buildLiquidPsetSummaryHash,
+  buildLiquidPolicyLockedRedemptionPaymentFromProposal,
   buildLiquidX402PaymentFromPset,
   buildLiquidX402Requirements,
   decodeLiquidAtomicDvpPayment,
@@ -436,6 +437,93 @@ test("Liquid x402 builds a payment payload from externally signed PSET", () => {
   assert.equal(result.paymentPayload.payer, "liquid:agent");
   assert.equal(result.summaryHash, buildLiquidPsetSummaryHash(decodedPset, requirements));
   assert.deepEqual(decodeLiquidXPayment(result.xPayment), result.paymentPayload);
+});
+
+test("Liquid x402 builds a policy-locked redemption payment from a service proposal", () => {
+  const requirements = {
+    scheme: "exact-liquid-pset",
+    network: "liquidtestnet",
+    maxAmountRequired: "10",
+    resource: "https://settlement.example/v1/redemptions/redemption-1/liquid-pset",
+    description: "RWA redemption",
+    mimeType: "application/json",
+    payTo: "tlq1redemptionvault",
+    maxTimeoutSeconds: 60,
+    asset: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+    x402SummaryHash: "summary-hash",
+    extra: {
+      paymentRequestId: "redemption-1",
+      asset: "custom",
+      assetId: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+      amount: "10",
+      decimals: 0,
+      recipient: "tlq1redemptionvault",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      feeAsset: "lbtc",
+      feeAssetId: LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId,
+      maxFeeSat: "1200",
+      redemptionSource: {
+        type: "policy_locked_position",
+        position: {
+          policyPositionId: "policy-position-1",
+          assetId: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+        },
+      },
+    },
+  };
+
+  const result = buildLiquidPolicyLockedRedemptionPaymentFromProposal({
+    requirements,
+    proposal: {
+      mode: "service_prepared_policy_spend_v1",
+      psetBase64: "service-prepared-policy-pset",
+    },
+    payer: "liquid:holder",
+  });
+
+  assert.equal(result.paymentPayload.asset, "custom");
+  assert.equal(result.paymentPayload.assetId, requirements.extra.assetId);
+  assert.equal(result.paymentPayload.amountAtomic, "10");
+  assert.equal(result.paymentPayload.payTo, requirements.payTo);
+  assert.equal(result.paymentPayload.psetBase64, "service-prepared-policy-pset");
+  assert.equal(result.paymentPayload.summaryHash, "summary-hash");
+  assert.equal(result.proposalMode, "service_prepared_policy_spend_v1");
+  assert.deepEqual(decodeLiquidXPayment(result.xPayment), result.paymentPayload);
+});
+
+test("Liquid x402 rejects policy-locked redemptions without a service-prepared spend proposal", () => {
+  const requirements = {
+    scheme: "exact-liquid-pset",
+    network: "liquidtestnet",
+    maxAmountRequired: "10",
+    resource: "https://settlement.example/v1/redemptions/redemption-2/liquid-pset",
+    description: "RWA redemption",
+    mimeType: "application/json",
+    payTo: "tlq1redemptionvault",
+    maxTimeoutSeconds: 60,
+    asset: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+    extra: {
+      paymentRequestId: "redemption-2",
+      asset: "custom",
+      assetId: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+      amount: "10",
+      recipient: "tlq1redemptionvault",
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      redemptionSource: { type: "policy_locked_position", position: { policyPositionId: "policy-position-2" } },
+    },
+  };
+
+  assert.throws(
+    () => buildLiquidPolicyLockedRedemptionPaymentFromProposal({ requirements }),
+    /policy spend proposal psetBase64 is required/u
+  );
+  assert.throws(
+    () => buildLiquidPolicyLockedRedemptionPaymentFromProposal({
+      requirements,
+      proposal: { psetBase64: "unsigned-policy-pset", holderSignatureRequired: true },
+    }),
+    /holder-side Simplicity signing/u
+  );
 });
 
 test("Liquid x402 canonicalizes L-BTC aliases in requirements", () => {

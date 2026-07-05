@@ -62,7 +62,7 @@ export interface LiquidX402PaymentPayload {
   scheme: typeof LIQUID_X402_SCHEME;
   network: LiquidX402Network;
   paymentRequestId: string;
-  asset: LiquidX402AssetKey;
+  asset: LiquidX402AssetKey | "custom" | string;
   assetId: string;
   amountAtomic: string;
   payTo: string;
@@ -94,6 +94,28 @@ export interface LiquidX402BuildPaymentFromPsetInput {
   payer?: string;
   summaryHash?: string;
 }
+
+export interface LiquidPolicyLockedRedemptionSpendProposal {
+  mode?: "service_prepared_policy_spend_v1" | string;
+  psetBase64?: string;
+  summaryHash?: string;
+  holderSignatureRequired?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LiquidPolicyLockedRedemptionPaymentFromProposalInput {
+  requirements: LiquidX402PaymentRequirements | Record<string, unknown>;
+  proposal?: LiquidPolicyLockedRedemptionSpendProposal | Record<string, unknown>;
+  proposalPsetBase64?: string;
+  summaryHash?: string;
+  payer?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export type LiquidPolicyLockedRedemptionPaymentFromProposalResult = LiquidX402PreparePsetPaymentResult & {
+  proposalMode?: string;
+  redemptionSource: Record<string, unknown>;
+};
 
 export interface LiquidX402PrepareLwkWasmPaymentInput {
   requirements: LiquidX402PaymentRequirements | Record<string, unknown>;
@@ -197,6 +219,26 @@ type ValidateAddressResult = {
 type ExpectedLiquidOutputTarget = {
   addresses: Set<string>;
   scriptHexes: Set<string>;
+};
+
+type LiquidPolicyLockedRedemptionRequirements = {
+  network: LiquidX402Network;
+  paymentRequestId: string;
+  resource: string;
+  description: string;
+  mimeType: string;
+  payTo: string;
+  maxTimeoutSeconds: number;
+  assetKey: string;
+  assetId: string;
+  amountAtomic: string;
+  decimals: number;
+  expiresAt: string;
+  feeAsset: "lbtc";
+  feeAssetId?: string;
+  maxFeeSat?: string;
+  summaryHash?: string;
+  redemptionSource: Record<string, unknown>;
 };
 
 export type LiquidX402LwkWasmModule = {
@@ -402,6 +444,38 @@ export function buildLiquidX402PaymentFromPset(
     xPayment: encodeLiquidXPayment(paymentPayload),
     psetBase64,
     summaryHash,
+  };
+}
+
+export function buildLiquidPolicyLockedRedemptionPaymentFromProposal(
+  input: LiquidPolicyLockedRedemptionPaymentFromProposalInput
+): LiquidPolicyLockedRedemptionPaymentFromProposalResult {
+  const requirements = coercePolicyLockedRedemptionRequirements(input.requirements);
+  const proposal = coercePolicyLockedRedemptionProposal(
+    input.proposal ?? getRecordValue(input.requirements, "policySpendProposal") ?? getExtraRecord(input.requirements).policySpendProposal,
+    input.proposalPsetBase64
+  );
+  const summaryHash = input.summaryHash ?? proposal.summaryHash ?? requirements.summaryHash ?? buildLiquidPolicyLockedRedemptionSummaryHash(requirements);
+  const paymentPayload: LiquidX402PaymentPayload = {
+    scheme: LIQUID_X402_SCHEME,
+    network: requirements.network,
+    paymentRequestId: requirements.paymentRequestId,
+    asset: requirements.assetKey,
+    assetId: requirements.assetId,
+    amountAtomic: requirements.amountAtomic,
+    payTo: requirements.payTo,
+    psetBase64: proposal.psetBase64,
+    summaryHash,
+    ...(input.payer ? { payer: input.payer } : {}),
+    expiresAt: requirements.expiresAt,
+  };
+  return {
+    paymentPayload,
+    xPayment: encodeLiquidXPayment(paymentPayload),
+    psetBase64: proposal.psetBase64,
+    summaryHash,
+    ...(proposal.mode ? { proposalMode: proposal.mode } : {}),
+    redemptionSource: requirements.redemptionSource,
   };
 }
 
@@ -696,6 +770,120 @@ function mempoolRejectReason(result: unknown): string {
   return String(raw["reject-reason"] ?? raw.reject_reason ?? raw.error ?? "mempool_rejected").trim() || "mempool_rejected";
 }
 
+function coercePolicyLockedRedemptionRequirements(
+  value: LiquidX402PaymentRequirements | Record<string, unknown>
+): LiquidPolicyLockedRedemptionRequirements {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("requirements must be an object");
+  const raw = value as Record<string, unknown>;
+  const extra = getExtraRecord(raw);
+  const network = normalizeNetwork(raw.network);
+  const paymentRequestId = stringValue(extra.paymentRequestId ?? raw.paymentRequestId, "paymentRequestId");
+  const payTo = stringValue(raw.payTo ?? extra.recipient ?? extra.payTo, "payTo");
+  const assetId = stringValue(raw.assetId ?? extra.assetId ?? raw.asset, "assetId");
+  const amountAtomic = normalizeAmountAtomic((raw.maxAmountRequired ?? extra.amount ?? raw.amountAtomic) as string | number | bigint);
+  const assetKey = normalizePaymentAssetKey(extra.asset ?? raw.assetKey ?? "custom");
+  const expiresAt = stringValue(extra.expiresAt ?? raw.expiresAt, "expiresAt");
+  const redemptionSource = coercePolicyLockedRedemptionSource(raw.redemptionSource ?? extra.redemptionSource);
+  const feeAssetId = String(extra.feeAssetId ?? LIQUID_X402_ASSETS[network].lbtc.assetId);
+
+  return {
+    network,
+    paymentRequestId,
+    resource: String(raw.resource ?? ""),
+    description: String(raw.description ?? ""),
+    mimeType: String(raw.mimeType ?? ""),
+    payTo,
+    maxTimeoutSeconds: normalizeTimeout(raw.maxTimeoutSeconds),
+    assetKey,
+    assetId,
+    amountAtomic,
+    decimals: Number(extra.decimals ?? raw.decimals ?? 0),
+    expiresAt,
+    feeAsset: "lbtc",
+    feeAssetId,
+    ...(extra.maxFeeSat !== undefined ? { maxFeeSat: normalizeAmountAtomic(extra.maxFeeSat as string | number | bigint) } : {}),
+    ...(typeof raw.x402SummaryHash === "string" ? { summaryHash: raw.x402SummaryHash } : {}),
+    ...(typeof raw.summaryHash === "string" ? { summaryHash: raw.summaryHash } : {}),
+    ...(typeof extra.x402SummaryHash === "string" ? { summaryHash: extra.x402SummaryHash } : {}),
+    ...(typeof extra.summaryHash === "string" ? { summaryHash: extra.summaryHash } : {}),
+    redemptionSource,
+  };
+}
+
+function coercePolicyLockedRedemptionSource(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("redemptionSource is required for policy-locked redemption");
+  }
+  const source = value as Record<string, unknown>;
+  const type = String(source.type ?? "").trim();
+  if (type !== "policy_locked_position") {
+    throw new Error("redemptionSource.type must be policy_locked_position");
+  }
+  return source;
+}
+
+function coercePolicyLockedRedemptionProposal(
+  value: unknown,
+  proposalPsetBase64?: string
+): Required<Pick<LiquidPolicyLockedRedemptionSpendProposal, "psetBase64">> &
+  Omit<LiquidPolicyLockedRedemptionSpendProposal, "psetBase64"> {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  if (raw.holderSignatureRequired === true) {
+    throw new Error(
+      "policy-locked redemption proposal still requires holder-side Simplicity signing; provide a service-prepared spend proposal"
+    );
+  }
+  const psetBase64 = String(proposalPsetBase64 ?? raw.psetBase64 ?? "").trim();
+  if (!psetBase64) throw new Error("policy spend proposal psetBase64 is required");
+  return {
+    psetBase64,
+    ...(raw.mode ? { mode: String(raw.mode) } : {}),
+    ...(raw.summaryHash ? { summaryHash: String(raw.summaryHash) } : {}),
+    ...(raw.holderSignatureRequired !== undefined ? { holderSignatureRequired: raw.holderSignatureRequired === true } : {}),
+    ...(raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
+      ? { metadata: raw.metadata as Record<string, unknown> }
+      : {}),
+  };
+}
+
+function buildLiquidPolicyLockedRedemptionSummaryHash(requirements: LiquidPolicyLockedRedemptionRequirements): string {
+  return sha256Hex(stableStringify({
+    scheme: LIQUID_X402_SCHEME,
+    network: requirements.network,
+    paymentRequestId: requirements.paymentRequestId,
+    asset: requirements.assetKey,
+    assetId: requirements.assetId,
+    amountAtomic: requirements.amountAtomic,
+    payTo: requirements.payTo,
+    expectedOutput: {
+      amountAtomic: requirements.amountAtomic,
+      assetId: requirements.assetId,
+      payTo: requirements.payTo,
+    },
+    feeAsset: requirements.feeAsset,
+    feeAssetId: requirements.feeAssetId ?? LIQUID_X402_ASSETS[requirements.network].lbtc.assetId,
+    maxFeeSat: requirements.maxFeeSat ?? null,
+  }));
+}
+
+function getRecordValue(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function getExtraRecord(value: unknown): Record<string, unknown> {
+  const extra = getRecordValue(value, "extra");
+  return extra && typeof extra === "object" && !Array.isArray(extra) ? extra as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown, name: string): string {
+  const result = String(value ?? "").trim();
+  if (!result) throw new Error(`${name} is required`);
+  return result;
+}
+
 function coerceRequirements(value: LiquidX402PaymentRequirements | Record<string, unknown>): LiquidX402PaymentRequirements {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("requirements must be an object");
   const raw = value as Record<string, any>;
@@ -811,7 +999,7 @@ function coercePaymentPayload(value: LiquidX402PaymentPayload | Record<string, u
     scheme: LIQUID_X402_SCHEME,
     network: normalizeNetwork(raw.network),
     paymentRequestId: String(raw.paymentRequestId ?? ""),
-    asset: normalizeAssetKey(String(raw.asset ?? "")),
+    asset: normalizePaymentAssetKey(String(raw.asset ?? "")),
     assetId: String(raw.assetId ?? ""),
     amountAtomic: normalizeAmountAtomic(raw.amountAtomic as string | number | bigint),
     payTo: String(raw.payTo ?? ""),
@@ -826,6 +1014,17 @@ function normalizeNetwork(input: unknown): LiquidX402Network {
   const value = String(input ?? "").trim().toLowerCase();
   if (value === "liquidtestnet" || value === "liquidv1") return value;
   throw new Error(`unsupported Liquid x402 network: ${String(input)}`);
+}
+
+function normalizePaymentAssetKey(input: unknown): LiquidX402AssetKey | "custom" | string {
+  const value = String(input ?? "").trim().toLowerCase();
+  if (value === "custom") return "custom";
+  try {
+    return normalizeAssetKey(value);
+  } catch {
+    if (/^[a-z0-9_-]{1,64}$/u.test(value) || /^[0-9a-f]{64}$/u.test(value)) return value;
+    throw new Error(`unsupported Liquid x402 asset: ${String(input)}`);
+  }
 }
 
 function normalizeAssetKey(input: unknown): LiquidX402AssetKey {
