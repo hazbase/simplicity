@@ -376,10 +376,11 @@ export interface MultiAssetContractCallInput {
   signer: SignerConfig;
   witness?: WitnessConfig;
   contractInput?: {
-    txid: string;
+    txid?: string;
     vout?: number;
     asset?: string;
     amountSat?: number;
+    sequence?: number;
     rawTxHex?: string;
     blindingPrivateKey?: string;
   };

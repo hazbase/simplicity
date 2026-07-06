@@ -25,10 +25,13 @@ import type {
   PolicyVerificationReport,
   PolicyVerificationReportSchemaVersion,
   PropagationMode,
+  MultiAssetContractCallInput,
+  MultiAssetContractInput,
   SimplicityArtifact,
 } from "../core/types";
 import { sha256HexUtf8, stableStringify } from "../core/summary";
 import { ValidationError } from "../core/errors";
+import { executeMultiAssetContractCall, inspectMultiAssetContractCall } from "../core/executor";
 import {
   analyzeOutputRawFields,
   computeExplicitV1OutputHash,
@@ -668,6 +671,76 @@ function buildPolicyRecursiveWitness(prepared: {
               : "0x03",
       },
     },
+  };
+}
+
+type PolicyMultiAssetSpendOptions = {
+  contractInput?: MultiAssetContractCallInput["contractInput"];
+  extraInputs?: MultiAssetContractInput[];
+  changeAddress?: string;
+  useMultiAssetExecutor?: boolean;
+};
+
+function isBitcoinPolicyAsset(assetId: string): boolean {
+  return assetId.trim().toLowerCase() === "bitcoin";
+}
+
+function shouldUseMultiAssetPolicyExecutor(
+  assetId: string,
+  input: PolicyMultiAssetSpendOptions,
+): boolean {
+  if (input.useMultiAssetExecutor === true) return true;
+  if (!isBitcoinPolicyAsset(assetId)) return true;
+  if (input.contractInput?.asset) return true;
+  if ((input.extraInputs?.length ?? 0) > 0) return true;
+  return Boolean(input.changeAddress);
+}
+
+function buildPolicyMultiAssetCallInput(input: {
+  wallet: string;
+  signer: MultiAssetContractCallInput["signer"];
+  currentState: PolicyState;
+  outputAddress: string;
+  outputAmountSat: number;
+  feeSat?: number;
+  broadcast?: boolean;
+  contractSequence?: number;
+  witness: MultiAssetContractCallInput["witness"];
+  purpose: string;
+} & PolicyMultiAssetSpendOptions): MultiAssetContractCallInput {
+  const contractAmountSat = input.contractInput?.amountSat ?? input.currentState.amountSat;
+  if (contractAmountSat !== input.outputAmountSat && !input.changeAddress) {
+    throw new ValidationError(
+      "changeAddress is required when policy contract input amount differs from the transfer output amount",
+      {
+        contractAmountSat,
+        outputAmountSat: input.outputAmountSat,
+        assetId: input.currentState.assetId,
+      },
+    );
+  }
+  return {
+    wallet: input.wallet,
+    signer: input.signer,
+    contractInput: {
+      ...(input.contractInput ?? {}),
+      asset: input.contractInput?.asset ?? input.currentState.assetId,
+      amountSat: contractAmountSat,
+      sequence: input.contractInput?.sequence ?? input.contractSequence,
+    },
+    ...(input.extraInputs ? { extraInputs: input.extraInputs } : {}),
+    outputs: [
+      {
+        address: input.outputAddress,
+        asset: input.currentState.assetId,
+        amountSat: input.outputAmountSat,
+      },
+    ],
+    feeSat: input.feeSat,
+    ...(input.changeAddress ? { changeAddress: input.changeAddress } : {}),
+    purpose: input.purpose,
+    ...(input.broadcast !== undefined ? { broadcast: input.broadcast } : {}),
+    witness: input.witness,
   };
 }
 
@@ -1713,6 +1786,28 @@ export async function inspectDirectTransfer(
     });
   }
   const currentContract = sdk.fromArtifact(currentArtifact);
+  const currentState = prepared.current.stateValue;
+  const directWitness = buildPolicyDirectWitness(prepared);
+  if (shouldUseMultiAssetPolicyExecutor(currentState.assetId, input)) {
+    const inspect = await inspectMultiAssetContractCall(
+      sdk.config,
+      currentArtifact,
+      buildPolicyMultiAssetCallInput({
+        ...input,
+        currentState,
+        outputAddress: prepared.nextCompiled.contractAddress,
+        outputAmountSat: input.nextAmountSat,
+        contractSequence: resolvePolicySequence(currentState),
+        witness: directWitness,
+        purpose: "sdk_policy_direct_transfer",
+      }),
+    );
+    return {
+      mode: "direct-hop" as const,
+      prepared,
+      inspect,
+    };
+  }
   const inspect = await currentContract.inspectCall({
     wallet: input.wallet,
     toAddress: prepared.nextCompiled.contractAddress,
@@ -1720,8 +1815,8 @@ export async function inspectDirectTransfer(
     sendAmount: satToBtcAmount(input.nextAmountSat),
     feeSat: input.feeSat,
     utxoPolicy: input.utxoPolicy,
-    sequence: resolvePolicySequence(prepared.current.stateValue),
-    witness: buildPolicyDirectWitness(prepared),
+    sequence: resolvePolicySequence(currentState),
+    witness: directWitness,
   });
   return {
     mode: "direct-hop" as const,
@@ -1757,6 +1852,10 @@ export async function executeDirectTransfer(
     broadcast?: boolean;
     feeSat?: number;
     utxoPolicy?: "smallest_over" | "largest" | "newest";
+    contractInput?: MultiAssetContractCallInput["contractInput"];
+    extraInputs?: MultiAssetContractInput[];
+    changeAddress?: string;
+    useMultiAssetExecutor?: boolean;
   },
 ) {
   const prepared = await prepareDirectTransfer(sdk, input);
@@ -1768,6 +1867,28 @@ export async function executeDirectTransfer(
     });
   }
   const currentContract = sdk.fromArtifact(currentArtifact);
+  const currentState = prepared.current.stateValue;
+  const directWitness = buildPolicyDirectWitness(prepared);
+  if (shouldUseMultiAssetPolicyExecutor(currentState.assetId, input)) {
+    const execution = await executeMultiAssetContractCall(
+      sdk.config,
+      currentArtifact,
+      buildPolicyMultiAssetCallInput({
+        ...input,
+        currentState,
+        outputAddress: prepared.nextCompiled.contractAddress,
+        outputAmountSat: input.nextAmountSat,
+        contractSequence: resolvePolicySequence(currentState),
+        witness: directWitness,
+        purpose: "sdk_policy_direct_transfer",
+      }),
+    );
+    return {
+      mode: "direct-hop" as const,
+      prepared,
+      execution,
+    };
+  }
   const execution = await currentContract.execute({
     wallet: input.wallet,
     toAddress: prepared.nextCompiled.contractAddress,
@@ -1776,8 +1897,8 @@ export async function executeDirectTransfer(
     feeSat: input.feeSat,
     broadcast: input.broadcast,
     utxoPolicy: input.utxoPolicy,
-    sequence: resolvePolicySequence(prepared.current.stateValue),
-    witness: buildPolicyDirectWitness(prepared),
+    sequence: resolvePolicySequence(currentState),
+    witness: directWitness,
   });
   return {
     mode: "direct-hop" as const,
@@ -1867,8 +1988,30 @@ export async function inspectTransfer(
     });
   }
   const currentContract = sdk.fromArtifact(currentArtifact);
+  const currentState = prepared.current.stateValue;
+  const recursiveWitness = buildPolicyRecursiveWitness(prepared);
 
   if (!prepared.nextCompiled) {
+    if (shouldUseMultiAssetPolicyExecutor(currentState.assetId, input)) {
+      const inspect = await inspectMultiAssetContractCall(
+        sdk.config,
+        currentArtifact,
+        buildPolicyMultiAssetCallInput({
+          ...input,
+          currentState,
+          outputAddress: input.nextReceiver.address!,
+          outputAmountSat: input.nextAmountSat,
+          contractSequence: resolvePolicySequence(currentState),
+          witness: recursiveWitness,
+          purpose: "sdk_policy_transfer_plain_exit",
+        }),
+      );
+      return {
+        mode: "plain-exit" as const,
+        prepared,
+        inspect,
+      };
+    }
     const inspect = await currentContract.inspectCall({
       wallet: input.wallet,
       toAddress: input.nextReceiver.address!,
@@ -1876,11 +2019,32 @@ export async function inspectTransfer(
       sendAmount: satToBtcAmount(input.nextAmountSat),
       feeSat: input.feeSat,
       utxoPolicy: input.utxoPolicy,
-      sequence: resolvePolicySequence(prepared.current.stateValue),
-      witness: buildPolicyRecursiveWitness(prepared),
+      sequence: resolvePolicySequence(currentState),
+      witness: recursiveWitness,
     });
     return {
       mode: "plain-exit" as const,
+      prepared,
+      inspect,
+    };
+  }
+
+  if (shouldUseMultiAssetPolicyExecutor(currentState.assetId, input)) {
+    const inspect = await inspectMultiAssetContractCall(
+      sdk.config,
+      currentArtifact,
+      buildPolicyMultiAssetCallInput({
+        ...input,
+        currentState,
+        outputAddress: prepared.nextCompiled.contractAddress,
+        outputAmountSat: input.nextAmountSat,
+        contractSequence: resolvePolicySequence(currentState),
+        witness: recursiveWitness,
+        purpose: "sdk_policy_transfer",
+      }),
+    );
+    return {
+      mode: prepared.verificationReport.enforcement,
       prepared,
       inspect,
     };
@@ -1893,8 +2057,8 @@ export async function inspectTransfer(
     sendAmount: satToBtcAmount(input.nextAmountSat),
     feeSat: input.feeSat,
     utxoPolicy: input.utxoPolicy,
-    sequence: resolvePolicySequence(prepared.current.stateValue),
-    witness: buildPolicyRecursiveWitness(prepared),
+    sequence: resolvePolicySequence(currentState),
+    witness: recursiveWitness,
   });
 
   return {
@@ -1931,6 +2095,10 @@ export async function executeTransfer(
     broadcast?: boolean;
     feeSat?: number;
     utxoPolicy?: "smallest_over" | "largest" | "newest";
+    contractInput?: MultiAssetContractCallInput["contractInput"];
+    extraInputs?: MultiAssetContractInput[];
+    changeAddress?: string;
+    useMultiAssetExecutor?: boolean;
   },
 ) {
   const prepared = await prepareTransfer(sdk, input);
@@ -1942,8 +2110,30 @@ export async function executeTransfer(
     });
   }
   const currentContract = sdk.fromArtifact(currentArtifact);
+  const currentState = prepared.current.stateValue;
+  const recursiveWitness = buildPolicyRecursiveWitness(prepared);
 
   if (!prepared.nextCompiled) {
+    if (shouldUseMultiAssetPolicyExecutor(currentState.assetId, input)) {
+      const execution = await executeMultiAssetContractCall(
+        sdk.config,
+        currentArtifact,
+        buildPolicyMultiAssetCallInput({
+          ...input,
+          currentState,
+          outputAddress: input.nextReceiver.address!,
+          outputAmountSat: input.nextAmountSat,
+          contractSequence: resolvePolicySequence(currentState),
+          witness: recursiveWitness,
+          purpose: "sdk_policy_transfer_plain_exit",
+        }),
+      );
+      return {
+        mode: "plain-exit" as const,
+        prepared,
+        execution,
+      };
+    }
     const execution = await currentContract.execute({
       wallet: input.wallet,
       toAddress: input.nextReceiver.address!,
@@ -1952,11 +2142,32 @@ export async function executeTransfer(
       feeSat: input.feeSat,
       broadcast: input.broadcast,
       utxoPolicy: input.utxoPolicy,
-      sequence: resolvePolicySequence(prepared.current.stateValue),
-      witness: buildPolicyRecursiveWitness(prepared),
+      sequence: resolvePolicySequence(currentState),
+      witness: recursiveWitness,
     });
     return {
       mode: "plain-exit" as const,
+      prepared,
+      execution,
+    };
+  }
+
+  if (shouldUseMultiAssetPolicyExecutor(currentState.assetId, input)) {
+    const execution = await executeMultiAssetContractCall(
+      sdk.config,
+      currentArtifact,
+      buildPolicyMultiAssetCallInput({
+        ...input,
+        currentState,
+        outputAddress: prepared.nextCompiled.contractAddress,
+        outputAmountSat: input.nextAmountSat,
+        contractSequence: resolvePolicySequence(currentState),
+        witness: recursiveWitness,
+        purpose: "sdk_policy_transfer",
+      }),
+    );
+    return {
+      mode: prepared.verificationReport.enforcement,
       prepared,
       execution,
     };
@@ -1970,8 +2181,8 @@ export async function executeTransfer(
     feeSat: input.feeSat,
     broadcast: input.broadcast,
     utxoPolicy: input.utxoPolicy,
-    sequence: resolvePolicySequence(prepared.current.stateValue),
-    witness: buildPolicyRecursiveWitness(prepared),
+    sequence: resolvePolicySequence(currentState),
+    witness: recursiveWitness,
   });
   return {
     mode: prepared.verificationReport.enforcement,

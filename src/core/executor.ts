@@ -622,7 +622,7 @@ function findRequestedContractUtxo(
   utxos: ContractUtxo[],
   input?: MultiAssetContractCallInput["contractInput"],
 ): ContractUtxo | null {
-  if (!input) return null;
+  if (!input?.txid) return null;
   const requested = utxos.find((utxo) => (
     utxo.txid === input.txid
     && (input.vout === undefined || utxo.vout === input.vout)
@@ -633,6 +633,20 @@ function findRequestedContractUtxo(
     asset: input.asset ?? requested.asset,
     sat: input.amountSat ?? requested.sat,
   };
+}
+
+function filterContractUtxosByRequestedAsset(
+  utxos: ContractUtxo[],
+  input?: MultiAssetContractCallInput["contractInput"],
+): ContractUtxo[] {
+  if (!input) return utxos;
+  return utxos.filter((utxo) => {
+    if (input.txid && utxo.txid !== input.txid) return false;
+    if (input.vout !== undefined && utxo.vout !== input.vout) return false;
+    if (input.asset && normalizeAssetId(utxo.asset) !== normalizeAssetId(input.asset)) return false;
+    if (input.amountSat !== undefined && utxo.sat !== input.amountSat) return false;
+    return true;
+  });
 }
 
 function buildMultiAssetBlindingSecrets(input: {
@@ -685,9 +699,18 @@ async function buildMultiAssetExecutionState(
   const contractUtxos = await scanUtxosByAddress(config, artifact.compiled.contractAddress);
   const feeSat = input.feeSat ?? config.defaults?.feeSat ?? DEFAULT_FEE_SAT;
   const requested = findRequestedContractUtxo(contractUtxos, input.contractInput);
-  const contractUtxo = requested ?? chooseUtxo(contractUtxos, 1, config.defaults?.utxoPolicy ?? "smallest_over");
+  const candidateContractUtxos = filterContractUtxosByRequestedAsset(contractUtxos, input.contractInput);
+  const contractUtxo = requested ?? chooseUtxo(candidateContractUtxos, 1, config.defaults?.utxoPolicy ?? "smallest_over");
   if (!contractUtxo) {
-    throw new UtxoNotFoundError(`No contract UTXO found for address=${artifact.compiled.contractAddress}`);
+    throw new UtxoNotFoundError(
+      `No contract UTXO found for address=${artifact.compiled.contractAddress}`,
+      {
+        requestedAsset: input.contractInput?.asset,
+        requestedAmountSat: input.contractInput?.amountSat,
+        requestedTxid: input.contractInput?.txid,
+        requestedVout: input.contractInput?.vout,
+      },
+    );
   }
 
   const extraInputs = input.extraInputs ?? [];
@@ -737,7 +760,7 @@ async function buildMultiAssetExecutionState(
     {
       txid: contractUtxo.txid,
       vout: contractUtxo.vout,
-      sequence: input.locktimeHeight ? DEFAULT_SEQUENCE : DEFAULT_SEQUENCE,
+      sequence: input.contractInput?.sequence ?? DEFAULT_SEQUENCE,
     },
     ...extraInputs.map((extra) => ({
       txid: extra.txid,

@@ -184,6 +184,16 @@ custom RWA asset, policy position, vault output, expiry, and summary hash into
 the `X-PAYMENT` payload, and rejects proposals that still require holder-side
 Simplicity witness construction.
 
+Services can prepare that policy-spend proposal with
+`sdk.policies.inspectTransfer(...)` or `sdk.policies.executeTransfer(...)`.
+When the current policy state carries a custom Liquid asset id, the policy
+executor automatically uses the SDK multi-asset PSET path instead of the legacy
+L-BTC-only spend path. Pass `extraInputs` for the L-BTC fee/sponsor inputs and
+`contractInput` when the policy position UTXO should be selected by outpoint,
+asset id, amount, blinding data, or sequence. If the policy UTXO amount is not
+fully transferred, pass an explicit `changeAddress`; exact-position redemptions
+do not need one.
+
 Typical entrypoints:
 - `sdk.rwaDvp.definePurchase(...)`
 - `sdk.rwaDvp.buildPaymentRequirements(...)`

@@ -217,6 +217,10 @@ Public Fund example:
    - `sdk.policies.prepareTransfer(...)`
    - `sdk.policies.inspectTransfer(...)`
    - `sdk.policies.executeTransfer(...)`
+   - custom Liquid asset policy spends use the multi-asset executor
+     automatically; pass `contractInput` for deterministic policy UTXO
+     selection and `extraInputs` for L-BTC fee/sponsor inputs. If the policy
+     UTXO amount is not fully transferred, pass `changeAddress` explicitly.
 7. Verify and export evidence with:
    - `sdk.policies.verifyState(...)`
    - `sdk.policies.verifyTransfer(...)`
