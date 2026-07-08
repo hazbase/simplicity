@@ -150,6 +150,16 @@ export interface LiquidAtomicDvpTakeProposalInput {
   proposal?: string;
   proposalPsetBase64?: string;
   proposalTxHex?: string;
+  /**
+   * Optional recipient for the maker-delivered asset when the taker PSET is
+   * completed. Use this for policy/Simplicity delivery addresses that are not a
+   * normal wallet receive address.
+   */
+  takerDeliveryAddress?: string;
+  /**
+   * Backwards-friendly alias for `takerDeliveryAddress`.
+   */
+  deliveryAddress?: string;
   payer?: string;
   esploraUrl?: string;
   waterfalls?: boolean;
@@ -168,6 +178,7 @@ export type LiquidAtomicDvpTakeProposalResult = ReturnType<typeof buildLiquidAto
   dwid?: string;
   proposalInput: LiquidAtomicDvpOutputRequirement;
   proposalOutput: LiquidAtomicDvpOutputRequirement;
+  takerDeliveryAddress?: string;
 };
 
 export interface LiquidAtomicDvpVerifyPayloadResult {
@@ -289,7 +300,11 @@ export async function prepareLiquidAtomicDvpLwkWasmTakerPayment(
 
   let builder = network.txBuilder();
   if (input.feeRate !== undefined) builder = builder.feeRate(input.feeRate);
-  builder = builder.liquidexTake([validated]);
+  const takerDeliveryAddress = normalizeOptionalString(
+    input.takerDeliveryAddress ?? input.deliveryAddress,
+    "takerDeliveryAddress",
+  );
+  builder = applyLiquidexTake(lwk, builder, [validated], network, takerDeliveryAddress);
   const unsigned = builder.finish(wollet);
   const signed = signer.sign(unsigned);
   const pset = input.finalize === false ? signed : wollet.finalize(signed);
@@ -304,6 +319,7 @@ export async function prepareLiquidAtomicDvpLwkWasmTakerPayment(
     ...(typeof wollet.dwid === "function" ? { dwid: wollet.dwid() } : {}),
     proposalInput,
     proposalOutput,
+    ...(takerDeliveryAddress ? { takerDeliveryAddress } : {}),
   };
 }
 
@@ -584,6 +600,26 @@ function parseLwkTransaction(lwk: LiquidAtomicDvpLwkWasmModule, txHex: string): 
   throw new Error("LWK Transaction support is required to validate a Liquidex proposal against a transaction.");
 }
 
+function applyLiquidexTake(
+  lwk: LiquidAtomicDvpLwkWasmModule,
+  builder: any,
+  validatedProposals: any[],
+  network: any,
+  takerDeliveryAddress?: string,
+): any {
+  if (!takerDeliveryAddress) return builder.liquidexTake(validatedProposals);
+  const deliveryAddress = parseLwkAddress(lwk, takerDeliveryAddress, network);
+  for (const method of ["liquidexTakeWithRecipient", "liquidexTakeToAddress", "liquidexTakeTo"]) {
+    if (typeof builder[method] === "function") {
+      return builder[method](validatedProposals, deliveryAddress);
+    }
+  }
+  throw new Error(
+    "Liquidex taker delivery address override is not supported by the loaded LWK module. " +
+    "Upgrade LWK or use a fixed-recipient/manual atomic DvP PSET builder."
+  );
+}
+
 function parseLiquidexProposal(lwk: LiquidAtomicDvpLwkWasmModule, value: string | undefined): any {
   const encoded = String(value ?? "").trim();
   if (!encoded) throw new Error("Liquidex proposal PSET is required");
@@ -667,6 +703,14 @@ function normalizeOutput(value: unknown, name: string): LiquidAtomicDvpOutputReq
     amountAtomic: normalizeInteger(raw.amountAtomic, `${name}.amountAtomic`),
     recipient: requiredString(raw.recipient, `${name}.recipient`),
   };
+}
+
+function normalizeOptionalString(value: unknown, name: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  if (!text) return undefined;
+  if (text.length > 2048) throw new Error(`${name} is too long`);
+  return text;
 }
 
 function normalizeServiceSigner(value: unknown): LiquidAtomicDvpServiceSigner | null {

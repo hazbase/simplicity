@@ -641,9 +641,17 @@ function filterContractUtxosByRequestedAsset(
 ): ContractUtxo[] {
   if (!input) return utxos;
   return utxos.filter((utxo) => {
+    const matchesRequestedOutpoint = Boolean(
+      input.txid
+      && utxo.txid === input.txid
+      && (input.vout === undefined || utxo.vout === input.vout),
+    );
     if (input.txid && utxo.txid !== input.txid) return false;
     if (input.vout !== undefined && utxo.vout !== input.vout) return false;
-    if (input.asset && normalizeAssetId(utxo.asset) !== normalizeAssetId(input.asset)) return false;
+    if (input.asset) {
+      if (!utxo.asset) return matchesRequestedOutpoint;
+      if (normalizeAssetId(utxo.asset) !== normalizeAssetId(input.asset)) return false;
+    }
     if (input.amountSat !== undefined && utxo.sat !== input.amountSat) return false;
     return true;
   });

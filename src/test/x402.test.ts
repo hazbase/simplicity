@@ -14,6 +14,7 @@ import {
   encodeLiquidAtomicDvpPayment,
   encodeLiquidXPayment,
   listLiquidX402Assets,
+  prepareLiquidAtomicDvpLwkWasmTakerPayment,
   prepareLiquidX402LwkWasmPayment,
   prepareLiquidX402PsetPayment,
   resolveLiquidX402Asset,
@@ -178,6 +179,69 @@ test("Liquid atomic DvP requirements bind payment and delivery outputs", () => {
       },
     }).invalidReason,
     "summary_hash_mismatch"
+  );
+});
+
+test("Liquid atomic DvP taker payment can pass an explicit delivery address override", async () => {
+  const requirements = buildLiquidAtomicDvpRequirements({
+    network: "liquidtestnet",
+    paymentRequestId: "rwa-order-atomic-override",
+    resource: "https://settlement.example/v1/orders/rwa-order-atomic-override/payments/atomic-dvp-pset",
+    termsHash: "0xterms",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    payment: {
+      assetId: LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId,
+      amountAtomic: "10000",
+      recipient: "tlq1treasury",
+    },
+    delivery: {
+      assetId: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+      amountAtomic: "10",
+      recipient: "tlq1policyrecipient",
+    },
+  });
+  const calls: string[] = [];
+  const payment = await prepareLiquidAtomicDvpLwkWasmTakerPayment({
+    requirements,
+    mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    proposalPsetBase64: "proposal-pset",
+    takerDeliveryAddress: requirements.outputs.rwaToBuyer.recipient,
+    lwk: createFakeLwkWasm(calls, { liquidexTakeWithRecipient: true }) as any,
+  });
+
+  assert.equal(payment.summaryHash, requirements.summaryHash);
+  assert.equal(payment.takerDeliveryAddress, requirements.outputs.rwaToBuyer.recipient);
+  assert.ok(calls.includes("TxBuilder.liquidexTakeWithRecipient:tlq1policyrecipient"));
+});
+
+test("Liquid atomic DvP taker delivery override fails clearly when LWK cannot enforce it", async () => {
+  const requirements = buildLiquidAtomicDvpRequirements({
+    network: "liquidtestnet",
+    paymentRequestId: "rwa-order-atomic-override-unsupported",
+    resource: "https://settlement.example/v1/orders/rwa-order-atomic-override-unsupported/payments/atomic-dvp-pset",
+    termsHash: "0xterms",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    payment: {
+      assetId: LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId,
+      amountAtomic: "10000",
+      recipient: "tlq1treasury",
+    },
+    delivery: {
+      assetId: "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+      amountAtomic: "10",
+      recipient: "tlq1policyrecipient",
+    },
+  });
+
+  await assert.rejects(
+    () => prepareLiquidAtomicDvpLwkWasmTakerPayment({
+      requirements,
+      mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      proposalPsetBase64: "proposal-pset",
+      takerDeliveryAddress: requirements.outputs.rwaToBuyer.recipient,
+      lwk: createFakeLwkWasm([]) as any,
+    }),
+    /delivery address override is not supported/
   );
 });
 
@@ -702,7 +766,10 @@ test("Liquid x402 settle surfaces Elements mempool reject reasons", async () => 
   assert.equal(result.rawTxHex, "00");
 });
 
-function createFakeLwkWasm(calls: string[]) {
+function createFakeLwkWasm(
+  calls: string[],
+  options: { liquidexTakeWithRecipient?: boolean } = {},
+) {
   class FakeAddress {
     constructor(private readonly value: string) {}
     static parse(value: string) {
@@ -748,7 +815,7 @@ function createFakeLwkWasm(calls: string[]) {
       return new FakeEsploraClient();
     }
     txBuilder() {
-      return new FakeTxBuilder();
+      return new FakeTxBuilder(options);
     }
     policyAsset() {
       return { toString: () => "policy-asset" };
@@ -811,10 +878,19 @@ function createFakeLwkWasm(calls: string[]) {
   class FakeTxBuilder {
     private active = true;
 
-    private consume() {
+    constructor(private readonly builderOptions: { liquidexTakeWithRecipient?: boolean } = {}) {
+      if (builderOptions.liquidexTakeWithRecipient) {
+        (this as any).liquidexTakeWithRecipient = (_proposals: FakeValidatedLiquidexProposal[], address: FakeAddress) => {
+          calls.push(`TxBuilder.liquidexTakeWithRecipient:${address.toString()}`);
+          return this.consume();
+        };
+      }
+    }
+
+    consume() {
       if (!this.active) throw new Error("stale TxBuilder used");
       this.active = false;
-      return new FakeTxBuilder();
+      return new FakeTxBuilder(this.builderOptions);
     }
 
     feeRate(value: number) {
@@ -833,6 +909,10 @@ function createFakeLwkWasm(calls: string[]) {
       calls.push(`TxBuilder.addLbtcRecipient:${amount}`);
       return this.consume();
     }
+    liquidexTake(_proposals: FakeValidatedLiquidexProposal[]) {
+      calls.push("TxBuilder.liquidexTake");
+      return this.consume();
+    }
     finish() {
       if (!this.active) throw new Error("stale TxBuilder used");
       calls.push("TxBuilder.finish");
@@ -841,8 +921,45 @@ function createFakeLwkWasm(calls: string[]) {
   }
 
   class FakePset {
+    constructor(readonly value: string = "lwk-signed-pset") {}
     toString() {
-      return "lwk-signed-pset";
+      return this.value || "lwk-signed-pset";
+    }
+  }
+
+  class FakeLiquidexAssetAmount {
+    constructor(
+      private readonly assetId: string,
+      private readonly amountAtomic: string,
+    ) {}
+    asset() {
+      return new FakeAssetId(this.assetId);
+    }
+    amount() {
+      return BigInt(this.amountAtomic);
+    }
+  }
+
+  class FakeValidatedLiquidexProposal {
+    input() {
+      return new FakeLiquidexAssetAmount(
+        "e790b7c19ea7044dd278adb7de60f9901d9bba3e23e0c84f1ca1674506a72755",
+        "10",
+      );
+    }
+    output() {
+      return new FakeLiquidexAssetAmount(LIQUID_X402_ASSETS.liquidtestnet.lbtc.assetId, "10000");
+    }
+  }
+
+  class FakeUnvalidatedLiquidexProposal {
+    static fromPset(_pset: FakePset) {
+      calls.push("UnvalidatedLiquidexProposal.fromPset");
+      return new FakeUnvalidatedLiquidexProposal();
+    }
+    insecureValidate() {
+      calls.push("UnvalidatedLiquidexProposal.insecureValidate");
+      return new FakeValidatedLiquidexProposal();
     }
   }
 
@@ -852,7 +969,9 @@ function createFakeLwkWasm(calls: string[]) {
     EsploraClient: FakeEsploraClient,
     Mnemonic: FakeMnemonic,
     Network: FakeNetwork,
+    Pset: FakePset,
     Signer: FakeSigner,
+    UnvalidatedLiquidexProposal: FakeUnvalidatedLiquidexProposal,
     Wollet: FakeWollet,
   };
 }

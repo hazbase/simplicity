@@ -242,6 +242,13 @@ These helpers model a Liquidex-style exchange:
 - the resulting `X-PAYMENT` payload commits to both the payment output and the
   delivery output through a summary hash
 
+When the delivered RWA output must go to a policy/Simplicity address instead of
+the taker's normal wallet receive address, pass `takerDeliveryAddress` (or the
+`deliveryAddress` alias) to `prepareLiquidAtomicDvpLwkWasmTakerPayment(...)`.
+The loaded LWK module must expose a recipient-aware `liquidexTake` variant; if
+it does not, the SDK fails explicitly instead of silently creating a PSET that
+delivers to the wrong address.
+
 The LWK convenience helpers dynamically load `lwk_node` or `lwk_wasm` from the
 consuming application. Install one of them in the application that prepares or
 takes proposals:
